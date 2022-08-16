@@ -1,17 +1,30 @@
+//https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
+use std::fs;
 
 use rand::{self, Rng};
-use rusqlite::{Connection, Result};
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use chrono::{Datelike, Timelike, Utc};
+
+use sqlx::Row;
+use rocket_db_pools::sqlx;
+use rocket_db_pools::{Connection, Database};
+
+use rocket::{
+    http::Status,
+    response::{self, Responder},
+    serde::{Deserialize, Serialize},
+    Request,
+};
+
 const ID_LENGTH: usize = 3;
-const DATABASE_PATH: &str = "./my_db.db3";
 pub struct ImageId {
     id: String,
 }
@@ -56,58 +69,94 @@ async fn get(token: &str, id: ImageId) -> Option<File> {
     }
     File::open(id.file_path()).await.ok()
 }
+#[get("/clean/<token>")]
+async fn clean(mut db: Connection<Canard>, token: &str) -> Option<String> {
+
+    if !is_token_valide(token) {
+        return None;
+    }
+    let now = Utc::now().timestamp();
+    dbg!(now);
+    let expired_rows = sqlx::query(
+        "SELECT id FROM images WHERE expiration_date < $1",
+    )
+    .bind(&now)
+    .fetch_all(&mut *db)
+    .await;
+    if let Ok(expired_rows) = expired_rows {
+        for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
+            let id = ImageId { id : id.to_string() };
+            let deleted = fs::remove_file(id.file_path());
+            if let Err(err) = deleted {
+                eprintln!("Cannot delete {:?}", err);
+            }
+        }
+        let deleted_rows = sqlx::query(
+            "DELETE FROM images WHERE expiration_date < $1",
+        )
+        .bind(&now)
+        .execute(&mut *db)
+        .await;
+    }
+    Some("All clean".to_string())
+}
 #[derive(Debug, FromForm)]
 struct Upload<'f> {
     upload: TempFile<'f>,
-    duration: Option<u64>,
+    duration: Option<i64>,
 }
+#[derive(Database)]
+#[database("sqlite_logs")]
+struct Canard(sqlx::SqlitePool);
 
-fn get_connection() -> Connection {
-    let path = DATABASE_PATH;
-    Connection::open(path).unwrap()
+#[derive(Deserialize, Serialize, sqlx::FromRow)]
+#[serde(crate = "rocket::serde")]
+struct ImageData {
+    id: String,
+    expiration_date: String,
+    token_used: String,
 }
 #[post("/post/<token>", data = "<img>")]
-async fn post(token: &str, mut img: Form<Upload<'_>>) -> std::io::Result<String> {
+async fn post(
+    mut db: Connection<Canard>,
+    token: &str,
+    mut img: Form<Upload<'_>>,
+) -> std::io::Result<String> {
     let id = ImageId::new(ID_LENGTH);
     if !is_token_valide(token) {
-        Err(Error::new(ErrorKind::Other, "oh no!"))
-    } else {
-        img.upload.copy_to(id.file_path()).await?;
-        let db = get_connection();
-        let expiration = &"2001".to_string();
-        let a = db.execute(
-            "INSERT INTO images (id, expiration_date, token_used) VALUES (:id, :expiration, :token)",
-            &[(":id", &id.get_id()), (":token", &token.to_string()), (":expiration", expiration) ],
-        );
-        eprintln!("{:?}", a);
+        return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
+    }
 
+    img.upload.copy_to(id.file_path()).await?;
+
+    let expiration = if let Some(duration) = img.duration {
+        let now = Utc::now().timestamp();
+        now + duration
+    } else {
+        i64::MAX - 1
+    };
+
+    let added_task = sqlx::query(
+        "INSERT INTO images (id, expiration_date, token_used) VALUES ($1, $2, $3) RETURNING *",
+    )
+    .bind(&id.id)
+    .bind(&expiration)
+    .bind(&token)
+    .execute(&mut *db)
+    .await;
+
+    if added_task.is_err() {
+        Err(Error::new(ErrorKind::Other, "Database unavailable"))
+    } else {
         Ok("All good buddy".to_string())
     }
 }
 
 #[launch]
 fn rocket() -> _ {
-    let init = !Path::new(DATABASE_PATH).exists();
-    let db = get_connection();
-    if init {
-        eprintln!("Initializing data base");
-        db.execute(
-            "CREATE TABLE images (
-            id    TEXT PRIMARY KEY,
-            expiration_date  DATE,
-            token_used TEXT
-        )",
-            (), // empty list of parameters.
-        )
-        .unwrap();
-    }
-    let mut stmt = db.prepare("SELECT id, expiration_date, token_used FROM images").unwrap();
-    let person_iter = stmt.query_map([], |row| {
-        Ok((row.get(0), row.get(1), row.get(2)))
-    });
-    db.close().unwrap();
-
     rocket::build()
+        .attach(Canard::init())
         .mount("/", routes![get])
         .mount("/", routes![post])
+        .mount("/", routes![clean])
 }
