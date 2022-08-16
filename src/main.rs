@@ -127,8 +127,6 @@ async fn post(
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
 
-    img.upload.copy_to(id.file_path()).await?;
-
     let expiration = if let Some(duration) = img.duration {
         let now = Utc::now().timestamp();
         now + duration
@@ -148,6 +146,8 @@ async fn post(
     if added_task.is_err() {
         Err(Error::new(ErrorKind::Other, "Database unavailable"))
     } else {
+        img.upload.copy_to(id.file_path()).await?;
+
         Ok("All good buddy".to_string())
     }
 }
