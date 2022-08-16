@@ -148,7 +148,7 @@ async fn post(
     } else {
         img.upload.copy_to(id.file_path()).await?;
 
-        Ok("All good buddy".to_string())
+        Ok(id.get_id())
     }
 }
 
