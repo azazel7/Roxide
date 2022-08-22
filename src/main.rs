@@ -100,7 +100,7 @@ async fn clean_expired_images(db: &Canard) {
                 eprintln!("Cannot delete {:?}", err);
             }
         }
-        let deleted_rows = sqlx::query("DELETE FROM images WHERE expiration_date < $1")
+        sqlx::query("DELETE FROM images WHERE expiration_date < $1")
             .bind(&now)
             .execute(&**db)
             .await
@@ -134,12 +134,10 @@ async fn post(
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
 
-    let expiration = if let Some(duration) = img.duration {
+    let expiration = img.duration.map_or(i64::MAX - 1, |duration| {
         let now = Utc::now().timestamp();
         now + duration
-    } else {
-        i64::MAX - 1
-    };
+    });
 
     let added_task = sqlx::query(
         "INSERT INTO images (id, expiration_date, token_used) VALUES ($1, $2, $3) RETURNING *",
