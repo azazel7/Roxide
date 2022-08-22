@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Timelike, Utc};
 
-use sqlx::Row;
 use rocket_db_pools::sqlx;
 use rocket_db_pools::{Connection, Database};
+use sqlx::Row;
 
 use rocket::{
     http::Status,
@@ -63,42 +63,55 @@ fn is_token_valide(token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
-async fn get(token: &str, id: ImageId) -> Option<File> {
+async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<File> {
     if !is_token_valide(token) {
+        return None;
+    }
+    let now = Utc::now().timestamp();
+    let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
+        .bind(&id.get_id())
+        .fetch_one(&mut *db)
+        .await;
+    if let Ok(row) = db_entry {
+        let expiration_date = row.get::<i64, &str>("expiration_date");
+        if expiration_date <= now {
+            clean_expired_images(&db);
+            return None;
+        }
+    }
+    else {
         return None;
     }
     File::open(id.file_path()).await.ok()
 }
 #[get("/clean/<token>")]
-async fn clean(mut db: Connection<Canard>, token: &str) -> Option<String> {
-
+async fn clean(db: Connection<Canard>, token: &str) -> Option<String> {
     if !is_token_valide(token) {
         return None;
     }
+    clean_expired_images(&db);
+    Some("All clean".to_string())
+}
+async fn clean_expired_images(mut db : &Connection<Canard>) {
     let now = Utc::now().timestamp();
     dbg!(now);
-    let expired_rows = sqlx::query(
-        "SELECT id FROM images WHERE expiration_date < $1",
-    )
-    .bind(&now)
-    .fetch_all(&mut *db)
-    .await;
+    let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
+        .bind(&now)
+        .fetch_all(&db)
+        .await;
     if let Ok(expired_rows) = expired_rows {
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
-            let id = ImageId { id : id.to_string() };
+            let id = ImageId { id: id.to_string() };
             let deleted = fs::remove_file(id.file_path());
             if let Err(err) = deleted {
                 eprintln!("Cannot delete {:?}", err);
             }
         }
-        let deleted_rows = sqlx::query(
-            "DELETE FROM images WHERE expiration_date < $1",
-        )
-        .bind(&now)
-        .execute(&mut *db)
-        .await;
+        let deleted_rows = sqlx::query("DELETE FROM images WHERE expiration_date < $1")
+            .bind(&now)
+            .execute(&db)
+            .await;
     }
-    Some("All clean".to_string())
 }
 #[derive(Debug, FromForm)]
 struct Upload<'f> {
