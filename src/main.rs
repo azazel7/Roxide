@@ -10,6 +10,7 @@ use std::fs;
 
 use image::io::Reader as ImageReader;
 use rand::{self, Rng};
+
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
@@ -38,10 +39,7 @@ impl ImageId {
     }
     pub fn file_path(&self) -> PathBuf {
         let root = "./upload";
-        Path::new(root).join(self.id.clone())
-    }
-    pub fn get_id(&self) -> String {
-        self.id.clone()
+        Path::new(root).join(&self.id)
     }
 }
 impl<'a> FromParam<'a> for ImageId {
@@ -66,13 +64,13 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
     }
     let now = Utc::now().timestamp();
     let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
-        .bind(&id.get_id())
+        .bind(&id.id)
         .fetch_one(&mut *db)
         .await;
     if let Ok(row) = db_entry {
         let expiration_date = row.get::<i64, &str>("expiration_date");
         if expiration_date <= now {
-            clean_expired_images(db);
+            clean_expired_images(db).await;
             return None;
         }
     } else {
@@ -175,7 +173,7 @@ async fn post(
     } else {
         img.upload.copy_to(id.file_path()).await?;
 
-        Ok(id.get_id())
+        Ok(id.id)
     }
 }
 
