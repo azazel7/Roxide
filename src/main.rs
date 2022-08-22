@@ -6,9 +6,9 @@ use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
-use rocket::Config;
 use std::fs;
 
+use image::io::Reader as ImageReader;
 use rand::{self, Rng};
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -19,12 +19,7 @@ use rocket_db_pools::sqlx;
 use rocket_db_pools::{Connection, Database};
 use sqlx::Row;
 
-use rocket::{
-    http::Status,
-    response::{self, Responder},
-    serde::{Deserialize, Serialize},
-    Request,
-};
+use rocket::serde::{Deserialize, Serialize};
 
 const ID_LENGTH: usize = 3;
 pub struct ImageId {
@@ -39,7 +34,7 @@ impl ImageId {
         for _ in 0..size {
             id.push(BASE62[rng.gen::<usize>() % 62] as char);
         }
-        ImageId { id }
+        Self { id }
     }
     pub fn file_path(&self) -> PathBuf {
         let root = "./upload";
@@ -56,12 +51,12 @@ impl<'a> FromParam<'a> for ImageId {
         param
             .chars()
             .all(|c| c.is_ascii_alphanumeric())
-            .then(|| ImageId { id: param.into() })
+            .then(|| Self { id: param.into() })
             .ok_or(param)
     }
 }
 
-fn is_token_valid(token: &str) -> bool {
+fn is_token_valid(_token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
@@ -138,10 +133,33 @@ async fn post(
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
 
-    let expiration = img.duration.map_or(i64::MAX - 1, |duration| {
-        let now = Utc::now().timestamp();
-        now + duration
-    });
+    let now = Utc::now().timestamp();
+    let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
+    if expiration < now {
+        return Err(Error::new(ErrorKind::Other, "Already expired"));
+    }
+    if let Some(image_path) = img.upload.path() {
+        let img = ImageReader::open(image_path);
+        if let Ok(img) = img {
+            let dec = img.with_guessed_format();
+            if let Ok(dec) = dec {
+                let dec = dec.decode();
+                if dec.is_err() {
+                    eprintln!("{:?}", dec);
+                    return Err(Error::new(ErrorKind::Other, "Image is not image"));
+                }
+            } else {
+                return Err(Error::new(ErrorKind::Other, "Couldn't guess format"));
+            }
+        } else {
+            return Err(Error::new(ErrorKind::Other, "Cannot access image"));
+        }
+    } else {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "Image is not fully downloaded",
+        ));
+    }
 
     let added_task = sqlx::query(
         "INSERT INTO images (id, expiration_date, token_used) VALUES ($1, $2, $3) RETURNING *",
