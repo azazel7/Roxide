@@ -1,6 +1,7 @@
 //https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
+use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::request::FromParam;
@@ -11,7 +12,9 @@ use rand::{self, Rng};
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use chrono::{Datelike, Timelike, Utc};
+use chrono::Utc;
+use rocket::tokio;
+use std::time::Duration;
 
 use rocket_db_pools::sqlx;
 use rocket_db_pools::{Connection, Database};
@@ -75,29 +78,19 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
     if let Ok(row) = db_entry {
         let expiration_date = row.get::<i64, &str>("expiration_date");
         if expiration_date <= now {
-            clean_expired_images(&db);
             return None;
         }
-    }
-    else {
+    } else {
         return None;
     }
     File::open(id.file_path()).await.ok()
 }
-#[get("/clean/<token>")]
-async fn clean(db: Connection<Canard>, token: &str) -> Option<String> {
-    if !is_token_valid(token) {
-        return None;
-    }
-    clean_expired_images(&db);
-    Some("All clean".to_string())
-}
-async fn clean_expired_images(mut db : &Connection<Canard>) {
+async fn clean_expired_images(db: &Canard) {
     let now = Utc::now().timestamp();
     dbg!(now);
     let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
         .bind(&now)
-        .fetch_all(&db)
+        .fetch_all(&**db)
         .await;
     if let Ok(expired_rows) = expired_rows {
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
@@ -109,8 +102,9 @@ async fn clean_expired_images(mut db : &Connection<Canard>) {
         }
         let deleted_rows = sqlx::query("DELETE FROM images WHERE expiration_date < $1")
             .bind(&now)
-            .execute(&db)
-            .await;
+            .execute(&**db)
+            .await
+            .unwrap();
     }
 }
 #[derive(Debug, FromForm)]
@@ -167,34 +161,32 @@ async fn post(
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    let r = rocket::build()
+    let _r = rocket::build()
         .attach(Canard::init())
+		.attach(AdHoc::try_on_ignite("Database Initialization", |rocket| async {
+			let conn = match Canard::fetch(&rocket) {
+				Some(pool) => pool.clone(), // clone the wrapped pool
+				None => return Err(rocket),
+			};
+
+            let expired_rows = sqlx::query("SELECT id, expiration_date, token_used FROM images")
+                .fetch_all(&**conn)
+                .await;
+            if expired_rows.is_err() {
+                eprintln!("Initializing Database");
+                sqlx::query(
+                    "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, token_used TEXT);",
+                )
+                .execute(&**conn)
+                .await
+                .unwrap();
+            }
+			Ok(rocket)
+		}))
         .mount("/", routes![get])
         .mount("/", routes![post])
-        .mount("/", routes![clean])
-        .ignite()
-        .await
-        .unwrap();
+        .launch()
+        .await?;
 
-    if let Some(conn) = Canard::fetch(&r) {
-        let expired_rows = sqlx::query("SELECT id, expiration_date, token_used FROM images")
-            .fetch_all(&**conn)
-            .await;
-        if expired_rows.is_err() {
-            eprintln!("Initializing Database");
-            sqlx::query(
-                "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, token_used TEXT);",
-            )
-            .execute(&**conn)
-            .await
-            .unwrap();
-        }
-
-    }
-
-    //let conn = rocket::acquire().await.unwrap();
-    //tokio::spawn(async move { long_running_task(conn).await });
-
-    r.launch().await.unwrap();
     Ok(())
 }
