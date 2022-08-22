@@ -165,11 +165,36 @@ async fn post(
     }
 }
 
-#[launch]
-fn rocket() -> _ {
-    rocket::build()
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
+    let r = rocket::build()
         .attach(Canard::init())
         .mount("/", routes![get])
         .mount("/", routes![post])
         .mount("/", routes![clean])
+        .ignite()
+        .await
+        .unwrap();
+
+    if let Some(conn) = Canard::fetch(&r) {
+        let expired_rows = sqlx::query("SELECT id, expiration_date, token_used FROM images")
+            .fetch_all(&**conn)
+            .await;
+        if expired_rows.is_err() {
+            eprintln!("Initializing Database");
+            sqlx::query(
+                "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, token_used TEXT);",
+            )
+            .execute(&**conn)
+            .await
+            .unwrap();
+        }
+
+    }
+
+    //let conn = rocket::acquire().await.unwrap();
+    //tokio::spawn(async move { long_running_task(conn).await });
+
+    r.launch().await.unwrap();
+    Ok(())
 }
