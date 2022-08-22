@@ -59,12 +59,12 @@ impl<'a> FromParam<'a> for ImageId {
     }
 }
 
-fn is_token_valide(token: &str) -> bool {
+fn is_token_valid(token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
 async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<File> {
-    if !is_token_valide(token) {
+    if !is_token_valid(token) {
         return None;
     }
     let now = Utc::now().timestamp();
@@ -86,7 +86,7 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
 }
 #[get("/clean/<token>")]
 async fn clean(db: Connection<Canard>, token: &str) -> Option<String> {
-    if !is_token_valide(token) {
+    if !is_token_valid(token) {
         return None;
     }
     clean_expired_images(&db);
@@ -136,7 +136,7 @@ async fn post(
     mut img: Form<Upload<'_>>,
 ) -> std::io::Result<String> {
     let id = ImageId::new(ID_LENGTH);
-    if !is_token_valide(token) {
+    if !is_token_valid(token) {
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
 
