@@ -14,8 +14,6 @@ use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use rocket::tokio;
-use std::time::Duration;
 
 use rocket_db_pools::sqlx;
 use rocket_db_pools::{Connection, Database};
@@ -79,6 +77,7 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
     if let Ok(row) = db_entry {
         let expiration_date = row.get::<i64, &str>("expiration_date");
         if expiration_date <= now {
+            clean_expired_images(db);
             return None;
         }
     } else {
@@ -86,12 +85,16 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
     }
     File::open(id.file_path()).await.ok()
 }
-async fn clean_expired_images(db: &Canard) {
+#[get("/clean")]
+async fn clean(db: Connection<Canard>) -> Option<File> {
+    clean_expired_images(db).await;
+    None
+}
+async fn clean_expired_images(mut db: Connection<Canard>) {
     let now = Utc::now().timestamp();
-    dbg!(now);
     let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
         .bind(&now)
-        .fetch_all(&**db)
+        .fetch_all(&mut **db)
         .await;
     if let Ok(expired_rows) = expired_rows {
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
@@ -103,7 +106,7 @@ async fn clean_expired_images(db: &Canard) {
         }
         sqlx::query("DELETE FROM images WHERE expiration_date < $1")
             .bind(&now)
-            .execute(&**db)
+            .execute(&mut **db)
             .await
             .unwrap();
     }
@@ -160,18 +163,6 @@ async fn post(
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    let url: String = Config::figment()
-        .extract_inner("databases.sqlite_logs.url")
-        .unwrap();
-	tokio::spawn(async move {
-	  let mut ten_minutes = time::interval(Duration::from_secs(60 * 10));
-	  loop {
-		eprintln!("{:}", url);
-
-		ten_minutes.tick().await;
-	  }
-	});
-
     let _r = rocket::build()
         .attach(Canard::init())
 		.attach(AdHoc::try_on_ignite("Database Initialization", |rocket| async {
@@ -194,41 +185,11 @@ async fn main() -> Result<(), rocket::Error> {
             }
 			Ok(rocket)
 		}))
-        //.attach(AdHoc::on_liftoff("DB polling", |rocket| {
-            //Box::pin(async move {
-                //let conn = Canard::fetch(&rocket);
-                //rocket::tokio::spawn(async move {
-                    //let mut interval = rocket::tokio::time::interval(
-                        //rocket::tokio::time::Duration::from_secs(10),
-                        //);
-                    //loop {
-                        //interval.tick().await;
-                        //// do_sql_stuff(&conn).await;
-                        //clean_expired_images(conn.unwrap());
-                        //println!("Do something here!!!");
-                    //}
-                //});
-            //})
-        //}))
         .mount("/", routes![get])
         .mount("/", routes![post])
+        .mount("/", routes![clean])
         .launch()
         .await?;
 
     Ok(())
 }
-//.attach(AdHoc::try_on_ignite("Background job", |rocket| async {
-//let conn = match Canard::fetch(&rocket) {
-//Some(pool) => pool.clone(), // clone the wrapped pool
-//None => return Err(rocket),
-//};
-
-//rocket::tokio::task::spawn(async move {
-//loop {
-//eprintln!("Cleaning");
-//clean_expired_images(conn);
-//tokio::time::sleep(Duration::from_secs(10)).await;
-//}
-//});
-//Ok(rocket)
-//}))
