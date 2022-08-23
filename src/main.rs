@@ -6,6 +6,7 @@ use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
+use rocket::{State, Config};
 use std::fs;
 
 use image::io::Reader as ImageReader;
@@ -22,6 +23,11 @@ use sqlx::Row;
 
 use rocket::serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize)]
+#[serde(crate = "rocket::serde")]
+struct AppConfig {
+    upload_directory : String
+}
 const ID_LENGTH: usize = 3;
 pub struct ImageId {
     id: String,
@@ -122,10 +128,12 @@ struct ImageData {
 }
 #[post("/post/<token>", data = "<img>")]
 async fn post(
+    rocket_config: &Config, app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
     mut img: Form<Upload<'_>>,
 ) -> std::io::Result<String> {
+    eprintln!("{:#?}\n{:#?}", app_config, rocket_config);
     let id = ImageId::new(ID_LENGTH);
     if !is_token_valid(token) {
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
@@ -181,6 +189,7 @@ async fn post(
 async fn main() -> Result<(), rocket::Error> {
     let _r = rocket::build()
         .attach(Canard::init())
+        .attach(AdHoc::config::<AppConfig>())
 		.attach(AdHoc::try_on_ignite("Database Initialization", |rocket| async {
 			let conn = match Canard::fetch(&rocket) {
 				Some(pool) => pool.clone(), // clone the wrapped pool
@@ -198,6 +207,17 @@ async fn main() -> Result<(), rocket::Error> {
                 .execute(&**conn)
                 .await
                 .unwrap();
+            }
+			Ok(rocket)
+		}))
+		.attach(AdHoc::try_on_ignite("Directory Initialization", |rocket| async {
+            if let Some(app_config) = rocket.state::<AppConfig>() {
+                if !Path::new(&app_config.upload_directory).exists() {
+                    let creation = fs::create_dir(&app_config.upload_directory);
+                    if creation.is_err() {
+                        panic!("The directory to store images cannot be created.");
+                    }
+                }
             }
 			Ok(rocket)
 		}))
