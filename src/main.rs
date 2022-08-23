@@ -135,8 +135,10 @@ async fn post(
     if !is_token_valid(token) {
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
-    let id = ImageId::new(app_config.id_length);
-
+    let mut id = ImageId::new(app_config.id_length);
+    while Path::new(&id.file_path(&app_config.upload_directory)).exists() {
+        id = ImageId::new(app_config.id_length);
+    }
 
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
