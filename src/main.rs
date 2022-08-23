@@ -6,7 +6,7 @@ use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
-use rocket::{State, Config};
+use rocket::State;
 use std::fs;
 
 use image::io::Reader as ImageReader;
@@ -26,9 +26,9 @@ use rocket::serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct AppConfig {
-    upload_directory : String
+    upload_directory : String,
+    id_length : usize,
 }
-const ID_LENGTH: usize = 3;
 pub struct ImageId {
     id: String,
 }
@@ -128,13 +128,12 @@ struct ImageData {
 }
 #[post("/post/<token>", data = "<img>")]
 async fn post(
-    rocket_config: &Config, app_config: &State<AppConfig>,
+    app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
     mut img: Form<Upload<'_>>,
 ) -> std::io::Result<String> {
-    eprintln!("{:#?}\n{:#?}", app_config, rocket_config);
-    let id = ImageId::new(ID_LENGTH);
+    let id = ImageId::new(app_config.id_length);
     if !is_token_valid(token) {
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
