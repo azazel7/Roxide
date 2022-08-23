@@ -43,8 +43,7 @@ impl ImageId {
         }
         Self { id }
     }
-    pub fn file_path(&self) -> PathBuf {
-        let root = "./upload";
+    pub fn file_path(&self, root: &str) -> PathBuf {
         Path::new(root).join(&self.id)
     }
 }
@@ -64,7 +63,7 @@ fn is_token_valid(_token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
-async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<File> {
+async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<File> {
     if !is_token_valid(token) {
         return None;
     }
@@ -76,20 +75,20 @@ async fn get(mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<Fil
     if let Ok(row) = db_entry {
         let expiration_date = row.get::<i64, &str>("expiration_date");
         if expiration_date <= now {
-            clean_expired_images(db).await;
+            clean_expired_images(app_config, db).await;
             return None;
         }
     } else {
         return None;
     }
-    File::open(id.file_path()).await.ok()
+    File::open(id.file_path(&app_config.upload_directory)).await.ok()
 }
 #[get("/clean")]
-async fn clean(db: Connection<Canard>) -> Option<File> {
-    clean_expired_images(db).await;
+async fn clean(app_config: &State<AppConfig>, db: Connection<Canard>) -> Option<File> {
+    clean_expired_images(app_config, db).await;
     None
 }
-async fn clean_expired_images(mut db: Connection<Canard>) {
+async fn clean_expired_images(app_config: &State<AppConfig>, mut db: Connection<Canard>) {
     let now = Utc::now().timestamp();
     let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
         .bind(&now)
@@ -98,7 +97,7 @@ async fn clean_expired_images(mut db: Connection<Canard>) {
     if let Ok(expired_rows) = expired_rows {
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
             let id = ImageId { id: id.to_string() };
-            let deleted = fs::remove_file(id.file_path());
+            let deleted = fs::remove_file(id.file_path(&app_config.upload_directory));
             if let Err(err) = deleted {
                 eprintln!("Cannot delete {:?}", err);
             }
@@ -133,10 +132,11 @@ async fn post(
     token: &str,
     mut img: Form<Upload<'_>>,
 ) -> std::io::Result<String> {
-    let id = ImageId::new(app_config.id_length);
     if !is_token_valid(token) {
         return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
     }
+    let id = ImageId::new(app_config.id_length);
+
 
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
@@ -150,7 +150,6 @@ async fn post(
             if let Ok(dec) = dec {
                 let dec = dec.decode();
                 if dec.is_err() {
-                    eprintln!("{:?}", dec);
                     return Err(Error::new(ErrorKind::Other, "Image is not image"));
                 }
             } else {
@@ -178,7 +177,7 @@ async fn post(
     if added_task.is_err() {
         Err(Error::new(ErrorKind::Other, "Database unavailable"))
     } else {
-        img.upload.copy_to(id.file_path()).await?;
+        img.upload.copy_to(id.file_path(&app_config.upload_directory)).await?;
 
         Ok(id.id)
     }
