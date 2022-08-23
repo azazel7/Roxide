@@ -7,12 +7,13 @@ use rocket::fs::TempFile;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
 use rocket::State;
+use rocket::Responder;
+use rocket::http::ContentType;
 use std::fs;
 
 use image::io::Reader as ImageReader;
 use rand::{self, Rng};
 
-use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -23,12 +24,32 @@ use sqlx::Row;
 
 use rocket::serde::{Deserialize, Serialize};
 
+#[derive(Debug, thiserror::Error)]
+enum RoxideError {
+    #[error("Permission denied")]
+    PermissionDenied,
+    #[error("Image has expired")]
+    ExpiredImage,
+    #[error("The image cannot be recognized")]
+    NotAnImage,
+    #[error("Image not available")]
+    ImageUnavailable,
+    #[error("{0}")]
+    IO(#[from] std::io::Error),
+    #[error("{0}")]
+    Database(#[from] sqlx::Error),
+    #[error("{0}")]
+    Rocket(#[from] rocket::Error),
+}
+
+
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct AppConfig {
     upload_directory : String,
     id_length : usize,
 }
+#[derive(Debug)]
 pub struct ImageId {
     id: String,
 }
@@ -63,9 +84,9 @@ fn is_token_valid(_token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
-async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &str, id: ImageId) -> Option<File> {
+async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &str, id: ImageId) -> (ContentType, Option<File>) {
     if !is_token_valid(token) {
-        return None;
+        return (ContentType::Any, None);
     }
     let now = Utc::now().timestamp();
     let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
@@ -76,12 +97,12 @@ async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &
         let expiration_date = row.get::<i64, &str>("expiration_date");
         if expiration_date <= now {
             clean_expired_images(app_config, db).await;
-            return None;
+            return (ContentType::Any, None);
         }
     } else {
-        return None;
+        return (ContentType::Any, None);
     }
-    File::open(id.file_path(&app_config.upload_directory)).await.ok()
+    (ContentType::PNG, File::open(id.file_path(&app_config.upload_directory)).await.ok())
 }
 #[get("/clean")]
 async fn clean(app_config: &State<AppConfig>, db: Connection<Canard>) -> Option<File> {
@@ -131,9 +152,9 @@ async fn post(
     mut db: Connection<Canard>,
     token: &str,
     mut img: Form<Upload<'_>>,
-) -> std::io::Result<String> {
+) -> Result<String, RoxideError> {
     if !is_token_valid(token) {
-        return Err(Error::new(ErrorKind::PermissionDenied, "Token not valid"));
+        return Err(RoxideError::PermissionDenied);
     }
     let mut id = ImageId::new(app_config.id_length);
     while Path::new(&id.file_path(&app_config.upload_directory)).exists() {
@@ -143,7 +164,7 @@ async fn post(
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
-        return Err(Error::new(ErrorKind::Other, "Already expired"));
+		return Err(RoxideError::ExpiredImage);
     }
     if let Some(image_path) = img.upload.path() {
         let img = ImageReader::open(image_path);
@@ -152,19 +173,16 @@ async fn post(
             if let Ok(dec) = dec {
                 let dec = dec.decode();
                 if dec.is_err() {
-                    return Err(Error::new(ErrorKind::Other, "Image is not image"));
+                    return Err(RoxideError::NotAnImage);
                 }
             } else {
-                return Err(Error::new(ErrorKind::Other, "Couldn't guess format"));
+                return Err(RoxideError::NotAnImage);
             }
         } else {
-            return Err(Error::new(ErrorKind::Other, "Cannot access image"));
+            return Err(RoxideError::NotAnImage);
         }
     } else {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "Image is not fully downloaded",
-        ));
+        return Err(RoxideError::ImageUnavailable);
     }
 
     let added_task = sqlx::query(
@@ -174,15 +192,11 @@ async fn post(
     .bind(&expiration)
     .bind(&token)
     .execute(&mut *db)
-    .await;
+    .await?;
 
-    if added_task.is_err() {
-        Err(Error::new(ErrorKind::Other, "Database unavailable"))
-    } else {
-        img.upload.copy_to(id.file_path(&app_config.upload_directory)).await?;
+    img.upload.copy_to(id.file_path(&app_config.upload_directory)).await?;
 
-        Ok(id.id)
-    }
+    Ok(id.id)
 }
 
 #[rocket::main]
