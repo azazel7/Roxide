@@ -24,22 +24,15 @@ use sqlx::Row;
 
 use rocket::serde::{Deserialize, Serialize};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Responder)]
+#[response(status = 500, content_type = "json")]
 enum RoxideError {
-    #[error("Permission denied")]
-    PermissionDenied,
-    #[error("Image has expired")]
-    ExpiredImage,
-    #[error("The image cannot be recognized")]
-    NotAnImage,
-    #[error("Image not available")]
-    ImageUnavailable,
-    #[error("{0}")]
-    IO(#[from] std::io::Error),
-    #[error("{0}")]
-    Database(#[from] sqlx::Error),
-    #[error("{0}")]
-    Rocket(#[from] rocket::Error),
+    PermissionDenied(String),
+    ExpiredImage(String),
+    NotAnImage(String),
+    ImageUnavailable(String),
+    Database(String),
+    IO(String),
 }
 
 
@@ -154,7 +147,7 @@ async fn post(
     mut img: Form<Upload<'_>>,
 ) -> Result<String, RoxideError> {
     if !is_token_valid(token) {
-        return Err(RoxideError::PermissionDenied);
+        return Err(RoxideError::PermissionDenied("Token not valid".to_string()));
     }
     let mut id = ImageId::new(app_config.id_length);
     while Path::new(&id.file_path(&app_config.upload_directory)).exists() {
@@ -164,7 +157,7 @@ async fn post(
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
-		return Err(RoxideError::ExpiredImage);
+		return Err(RoxideError::ExpiredImage("Expired image".to_string()));
     }
     if let Some(image_path) = img.upload.path() {
         let img = ImageReader::open(image_path);
@@ -173,16 +166,16 @@ async fn post(
             if let Ok(dec) = dec {
                 let dec = dec.decode();
                 if dec.is_err() {
-                    return Err(RoxideError::NotAnImage);
+                    return Err(RoxideError::NotAnImage("Not an image".to_string()));
                 }
             } else {
-                return Err(RoxideError::NotAnImage);
+                return Err(RoxideError::NotAnImage("Not an image".to_string()));
             }
         } else {
-            return Err(RoxideError::NotAnImage);
+            return Err(RoxideError::NotAnImage("Not an image".to_string()));
         }
     } else {
-        return Err(RoxideError::ImageUnavailable);
+        return Err(RoxideError::ImageUnavailable("Not an image".to_string()));
     }
 
     let added_task = sqlx::query(
@@ -192,11 +185,23 @@ async fn post(
     .bind(&expiration)
     .bind(&token)
     .execute(&mut *db)
-    .await?;
+    .await;
+    if let Ok(_) = added_task {
+        let copy = img.upload.copy_to(id.file_path(&app_config.upload_directory)).await;
+        if let Ok(_) = copy {
 
-    img.upload.copy_to(id.file_path(&app_config.upload_directory)).await?;
+            Ok(id.id)
+        }
+        else{
+            Err(RoxideError::IO("Copy failed".to_string()))
+        }
 
-    Ok(id.id)
+    }
+    else{
+        Err(RoxideError::Database("Insertion error".to_string()))
+    }
+
+
 }
 
 #[rocket::main]
