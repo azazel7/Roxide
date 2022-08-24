@@ -1,3 +1,7 @@
 [default.databases.sqlite_logs]
 url = "./database.sqlite"
 
+[default]
+upload_directory = "./upload"
+id_length = 10
+
