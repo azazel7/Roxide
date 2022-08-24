@@ -1,6 +1,7 @@
 //https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
+use rand::seq::SliceRandom;
 use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
@@ -12,7 +13,6 @@ use rocket::State;
 use std::fs;
 
 use image::io::Reader as ImageReader;
-use rand::{self, Rng};
 
 use std::path::{Path, PathBuf};
 
@@ -49,11 +49,13 @@ impl ImageId {
     fn new(size: usize) -> Self {
         const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-        let mut id = String::with_capacity(size);
         let mut rng = rand::thread_rng();
-        for _ in 0..size {
-            id.push(BASE62[rng.gen::<usize>() % 62] as char);
-        }
+        let id = (0..size)
+            .into_iter()
+            .map(|_| *BASE62.choose(&mut rng).unwrap())
+            .collect::<Vec<_>>();
+
+        let id = std::str::from_utf8(&id).unwrap().to_string();
         Self { id }
     }
     pub fn file_path(&self, root: &str) -> PathBuf {
