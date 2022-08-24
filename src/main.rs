@@ -4,11 +4,11 @@ extern crate rocket;
 use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
+use rocket::http::ContentType;
 use rocket::request::FromParam;
 use rocket::tokio::fs::File;
-use rocket::State;
 use rocket::Responder;
-use rocket::http::ContentType;
+use rocket::State;
 use std::fs;
 
 use image::io::Reader as ImageReader;
@@ -35,12 +35,11 @@ enum RoxideError {
     IO(String),
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct AppConfig {
-    upload_directory : String,
-    id_length : usize,
+    upload_directory: String,
+    id_length: usize,
 }
 #[derive(Debug)]
 pub struct ImageId {
@@ -77,7 +76,12 @@ fn is_token_valid(_token: &str) -> bool {
     true
 }
 #[get("/get/<token>/<id>")]
-async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &str, id: ImageId) -> (ContentType, Option<File>) {
+async fn get(
+    app_config: &State<AppConfig>,
+    mut db: Connection<Canard>,
+    token: &str,
+    id: ImageId,
+) -> (ContentType, Option<File>) {
     if !is_token_valid(token) {
         return (ContentType::Any, None);
     }
@@ -95,7 +99,12 @@ async fn get(app_config: &State<AppConfig>, mut db: Connection<Canard>, token: &
     } else {
         return (ContentType::Any, None);
     }
-    (ContentType::PNG, File::open(id.file_path(&app_config.upload_directory)).await.ok())
+    (
+        ContentType::PNG,
+        File::open(id.file_path(&app_config.upload_directory))
+            .await
+            .ok(),
+    )
 }
 #[get("/clean")]
 async fn clean(app_config: &State<AppConfig>, db: Connection<Canard>) -> Option<File> {
@@ -157,7 +166,7 @@ async fn post(
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
-		return Err(RoxideError::ExpiredImage("Expired image".to_string()));
+        return Err(RoxideError::ExpiredImage("Expired image".to_string()));
     }
     if let Some(image_path) = img.upload.path() {
         let img = ImageReader::open(image_path);
@@ -186,22 +195,19 @@ async fn post(
     .bind(&token)
     .execute(&mut *db)
     .await;
-    if let Ok(_) = added_task {
-        let copy = img.upload.copy_to(id.file_path(&app_config.upload_directory)).await;
-        if let Ok(_) = copy {
-
+    if added_task.is_ok() {
+        let copy = img
+            .upload
+            .copy_to(id.file_path(&app_config.upload_directory))
+            .await;
+        if copy.is_ok() {
             Ok(id.id)
-        }
-        else{
+        } else {
             Err(RoxideError::IO("Copy failed".to_string()))
         }
-
-    }
-    else{
+    } else {
         Err(RoxideError::Database("Insertion error".to_string()))
     }
-
-
 }
 
 #[rocket::main]
