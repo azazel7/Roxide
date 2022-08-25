@@ -4,4 +4,5 @@ url = "./database.sqlite"
 [default]
 upload_directory = "./upload"
 id_length = 10
+size_limit = 10
 

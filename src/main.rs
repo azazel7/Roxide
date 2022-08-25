@@ -3,22 +3,18 @@
 extern crate rocket;
 mod image_id;
 mod user;
+
 use crate::image_id::ImageId;
 
-use rocket::fairing::AdHoc;
-use rocket::Responder;
 use std::fs;
-
-
 use std::path::Path;
-
+use sqlx::Row;
 use chrono::Utc;
-
+use rocket::Responder;
+use rocket::serde::Deserialize;
+use rocket::fairing::AdHoc;
 use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
-use sqlx::Row;
-
-use rocket::serde::Deserialize;
 
 #[derive(Debug, Responder)]
 #[response(status = 500, content_type = "json")]
@@ -36,11 +32,13 @@ enum RoxideError {
 struct AppConfig {
     upload_directory: String,
     id_length: usize,
+    size_limit: usize,
 }
 
 fn is_token_valid(_token: &str) -> bool {
     true
 }
+
 #[derive(Database)]
 #[database("sqlite_logs")]
 struct Canard(sqlx::SqlitePool);
