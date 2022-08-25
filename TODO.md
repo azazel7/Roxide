@@ -2,6 +2,11 @@
 	- [x] Add attribute to AppConfig that set the limit of upload per hour (max_upload?).
 	- [x] Count the last upload in the last hour for a token.
 	- [x] Block a post of a token if it has uploaded more than max_upload.
+- [ ] Check size of the upload dir (https://stackoverflow.com/questions/60041710/how-to-check-directory-size)
+	- [ ] Check size.
+	- [ ] If size exceed a user defined limit, aggressivly clean.
+	- [ ] Make function to aggressivly clean.
+	- [ ] Block upload when the upload dir has reached its limit.
 - [ ] Add attribute to the image if it's public or not.
 	- [ ] By default, it is public (we share everything)
 	- [ ] Add function to list all public images.
