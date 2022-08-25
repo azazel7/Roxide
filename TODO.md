@@ -1,8 +1,7 @@
-- [ ] Limit upload frequency
-	- [ ] Add attribute to AppConfig that set the limit of upload per hour (max_upload?).
-	- [ ] Make a multithread hashmap that stores max_upload for each token.
-	- [ ] Keep that hashmap up-to-date for every post or get for the token.
-	- [ ] Block a post of a token if its up-to-date hashmap is equal to max_upload.
+- [x] Limit upload frequency
+	- [x] Add attribute to AppConfig that set the limit of upload per hour (max_upload?).
+	- [x] Count the last upload in the last hour for a token.
+	- [x] Block a post of a token if it has uploaded more than max_upload.
 - [ ] Add attribute to the image if it's public or not.
 	- [ ] By default, it is public (we share everything)
 	- [ ] Add function to list all public images.

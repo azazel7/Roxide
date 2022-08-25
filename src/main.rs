@@ -6,15 +6,15 @@ mod user;
 
 use crate::image_id::ImageId;
 
-use std::fs;
-use std::path::Path;
-use sqlx::Row;
 use chrono::Utc;
-use rocket::Responder;
-use rocket::serde::Deserialize;
 use rocket::fairing::AdHoc;
+use rocket::serde::Deserialize;
+use rocket::Responder;
 use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
+use sqlx::Row;
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Responder)]
 #[response(status = 500, content_type = "json")]
@@ -32,6 +32,7 @@ enum RoxideError {
 struct AppConfig {
     upload_directory: String,
     id_length: usize,
+    max_upload : usize,
 }
 
 fn is_token_valid(_token: &str) -> bool {
@@ -41,7 +42,6 @@ fn is_token_valid(_token: &str) -> bool {
 #[derive(Database)]
 #[database("sqlite_logs")]
 struct Canard(sqlx::SqlitePool);
-
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
@@ -54,13 +54,13 @@ async fn main() -> Result<(), rocket::Error> {
 				None => return Err(rocket),
 			};
 
-            let expired_rows = sqlx::query("SELECT id, expiration_date, token_used FROM images")
+            let expired_rows = sqlx::query("SELECT id, expiration_date, upload_date, token_used, is_image FROM images")
                 .fetch_all(&**conn)
                 .await;
             if expired_rows.is_err() {
                 eprintln!("Initializing Database");
                 sqlx::query(
-                    "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, token_used TEXT);",
+                    "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, is_image BOOL);",
                 )
                 .execute(&**conn)
                 .await

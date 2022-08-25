@@ -5,4 +5,5 @@ url = "./database.sqlite"
 upload_directory = "./upload"
 id_length = 10
 limits = { file = "15MiB", data-form = "15MiB"}
+max_upload = 1
 

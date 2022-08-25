@@ -1,16 +1,16 @@
-use crate::{is_token_valid, RoxideError, Canard, AppConfig, ImageId};
+use crate::{is_token_valid, AppConfig, Canard, ImageId, RoxideError};
+use chrono::Utc;
+use image::io::Reader as ImageReader;
+use rocket::fairing::AdHoc;
+use rocket::form::Form;
+use rocket::fs::TempFile;
+use rocket::http::ContentType;
+use rocket::tokio::fs::File;
+use rocket::State;
+use rocket_db_pools::Connection;
 use sqlx::Row;
 use std::fs;
 use std::path::Path;
-use chrono::Utc;
-use image::io::Reader as ImageReader;
-use rocket::State;
-use rocket::fs::TempFile;
-use rocket::form::Form;
-use rocket::http::ContentType;
-use rocket::tokio::fs::File;
-use rocket::fairing::AdHoc;
-use rocket_db_pools::Connection;
 
 //Structure use to receive the form that post an image.
 #[derive(Debug, FromForm)]
@@ -65,12 +65,31 @@ async fn post(
         return Err(RoxideError::ImageUnavailable("Not an image".to_string()));
     }
 
+    //Retrieve the database entry
+    let time_limit = now - 3600;
+    let db_count = sqlx::query("SELECT count(1) AS count FROM images WHERE token_used = $1 AND upload_date > $2")
+        .bind(token)
+        .bind(&time_limit)
+        .fetch_one(&mut *db)
+        .await;
+    if let Ok(row) = db_count {
+        let count = row.get::<i64, &str>("count") as usize;
+        if count >= app_config.max_upload {
+            return Err(RoxideError::PermissionDenied("Too much upload".to_string()));
+        }
+    } else {
+        //The entry in the database cannot be found.
+        return Err(RoxideError::PermissionDenied("Error checking permision".to_string()));
+    }
+
     let added_task = sqlx::query(
-        "INSERT INTO images (id, expiration_date, token_used) VALUES ($1, $2, $3) RETURNING *",
+        "INSERT INTO images (id, expiration_date, upload_date, token_used, is_image) VALUES ($1, $2, $3, $4, $5) RETURNING *",
     )
     .bind(id.get_id())
     .bind(&expiration)
+    .bind(&now)
     .bind(&token)
+    .bind(&true)
     .execute(&mut *db)
     .await;
     if added_task.is_ok() {
@@ -147,7 +166,6 @@ async fn clean_expired_images(app_config: &State<AppConfig>, mut db: Connection<
         .await;
 
     if let Ok(expired_rows) = expired_rows {
-
         //Iterate over the row to delete the files
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
             let id = ImageId::from(id);
