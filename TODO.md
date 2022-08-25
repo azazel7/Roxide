@@ -1,0 +1,15 @@
+- [ ] Limit upload frequency
+	- [ ] Add attribute to AppConfig that set the limit of upload per hour (max_upload?).
+	- [ ] Make a multithread hashmap that stores max_upload for each token.
+	- [ ] Keep that hashmap up-to-date for every post or get for the token.
+	- [ ] Block a post of a token if its up-to-date hashmap is equal to max_upload.
+- [ ] Add attribute to the image if it's public or not.
+	- [ ] By default, it is public (we share everything)
+	- [ ] Add function to list all public images.
+- [ ] Admin url
+	- [ ] Admin tokens in config files.
+	- [ ] Function to check if token is admin.
+	- [ ] Admin functions
+		- [ ] Get all (public or not) non expired images.
+		- [ ] Delete an image.
+		- [ ] Set expiration date for image.
