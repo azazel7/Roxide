@@ -1,12 +1,13 @@
 //https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
-use rand::seq::SliceRandom;
+mod image_id;
+use crate::image_id::ImageId;
+
 use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::http::ContentType;
-use rocket::request::FromParam;
 use rocket::tokio::fs::File;
 use rocket::Responder;
 use rocket::State;
@@ -14,7 +15,7 @@ use std::fs;
 
 use image::io::Reader as ImageReader;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use chrono::Utc;
 
@@ -41,38 +42,6 @@ struct AppConfig {
     upload_directory: String,
     id_length: usize,
 }
-#[derive(Debug)]
-pub struct ImageId {
-    id: String,
-}
-impl ImageId {
-    fn new(size: usize) -> Self {
-        const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-        let mut rng = rand::thread_rng();
-        let id = (0..size)
-            .into_iter()
-            .map(|_| *BASE62.choose(&mut rng).unwrap())
-            .collect::<Vec<_>>();
-
-        let id = std::str::from_utf8(&id).unwrap().to_string();
-        Self { id }
-    }
-    pub fn file_path(&self, root: &str) -> PathBuf {
-        Path::new(root).join(&self.id)
-    }
-}
-impl<'a> FromParam<'a> for ImageId {
-    type Error = &'a str;
-
-    fn from_param(param: &'a str) -> Result<Self, Self::Error> {
-        param
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric())
-            .then(|| Self { id: param.into() })
-            .ok_or(param)
-    }
-}
 
 fn is_token_valid(_token: &str) -> bool {
     true
@@ -89,7 +58,7 @@ async fn get(
     }
     let now = Utc::now().timestamp();
     let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
-        .bind(&id.id)
+        .bind(id.get_id())
         .fetch_one(&mut *db)
         .await;
     if let Ok(row) = db_entry {
@@ -121,7 +90,7 @@ async fn clean_expired_images(app_config: &State<AppConfig>, mut db: Connection<
         .await;
     if let Ok(expired_rows) = expired_rows {
         for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
-            let id = ImageId { id: id.to_string() };
+            let id = ImageId::from(id);
             let deleted = fs::remove_file(id.file_path(&app_config.upload_directory));
             if let Err(err) = deleted {
                 eprintln!("Cannot delete {:?}", err);
@@ -192,7 +161,7 @@ async fn post(
     let added_task = sqlx::query(
         "INSERT INTO images (id, expiration_date, token_used) VALUES ($1, $2, $3) RETURNING *",
     )
-    .bind(&id.id)
+    .bind(id.get_id())
     .bind(&expiration)
     .bind(&token)
     .execute(&mut *db)
@@ -203,7 +172,7 @@ async fn post(
             .copy_to(id.file_path(&app_config.upload_directory))
             .await;
         if copy.is_ok() {
-            Ok(id.id)
+            Ok(id.get_id().to_string())
         } else {
             Err(RoxideError::IO("Copy failed".to_string()))
         }
