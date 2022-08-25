@@ -32,7 +32,6 @@ enum RoxideError {
 struct AppConfig {
     upload_directory: String,
     id_length: usize,
-    size_limit: usize,
 }
 
 fn is_token_valid(_token: &str) -> bool {
