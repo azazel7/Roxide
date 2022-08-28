@@ -4,27 +4,41 @@ extern crate rocket;
 mod image_id;
 mod user;
 
-use crate::image_id::ImageId;
-
-use chrono::Utc;
-use rocket::fairing::AdHoc;
-use rocket::serde::Deserialize;
-use rocket::Responder;
-use rocket_db_pools::sqlx;
-use rocket_db_pools::Database;
-use sqlx::Row;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Responder)]
-#[response(status = 500, content_type = "json")]
+use chrono::Utc;
+
+use rocket::fairing::AdHoc;
+use rocket::local::blocking::Client;
+use rocket::serde::Deserialize;
+//use rocket::Responder;
+use rocket::response::Responder;
+
+use rocket_db_pools::sqlx;
+use rocket_db_pools::Database;
+use sqlx::Row;
+
+use crate::image_id::ImageId;
+
+#[derive(Debug, thiserror::Error)]
 enum RoxideError {
-    PermissionDenied(String),
-    ExpiredImage(String),
-    NotAnImage(String),
-    ImageUnavailable(String),
-    Database(String),
-    IO(String),
+    #[error("roxide : {0}")]
+    Roxide(String),
+    #[error("rocket : {0}")]
+    Rocket(#[from] rocket::Error),
+    #[error("database : {0}")]
+    Database(#[from] sqlx::error::Error),
+    #[error("IO : {0}")]
+    IO(#[from] std::io::Error),
+}
+impl<'r> Responder<'r, 'static> for RoxideError {
+    fn respond_to(self, req: &'r rocket::Request<'_>) -> rocket::response::Result<'static> {
+        let string = self.to_string();
+        rocket::Response::build_from(string.respond_to(req)?)
+            .status(rocket::http::Status::InternalServerError)
+            .ok()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +46,7 @@ enum RoxideError {
 struct AppConfig {
     upload_directory: String,
     id_length: usize,
-    max_upload : usize,
+    max_upload: usize,
 }
 
 fn is_token_valid(_token: &str) -> bool {
@@ -44,9 +58,10 @@ fn is_token_valid(_token: &str) -> bool {
 struct Canard(sqlx::SqlitePool);
 
 #[rocket::main]
-async fn main() -> Result<(), rocket::Error> {
-    let _r = rocket::build()
-        .attach(Canard::init())
+async fn main() -> Result<(), RoxideError> {
+    let mut r = rocket::build();
+
+    r = r.attach(Canard::init())
         .attach(AdHoc::config::<AppConfig>())
 		.attach(AdHoc::try_on_ignite("Database Initialization", |rocket| async {
 			let conn = match Canard::fetch(&rocket) {
@@ -59,12 +74,14 @@ async fn main() -> Result<(), rocket::Error> {
                 .await;
             if expired_rows.is_err() {
                 eprintln!("Initializing Database");
-                sqlx::query(
+                let create = sqlx::query(
                     "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, is_image BOOL);",
                 )
                 .execute(&**conn)
-                .await
-                .unwrap();
+                .await;
+                if create.is_err() {
+                    return Err(rocket);
+                }
             }
 			Ok(rocket)
 		}))
@@ -106,9 +123,22 @@ async fn main() -> Result<(), rocket::Error> {
                 }
             })
         }))
-        .attach(user::stage())
-        .launch()
-        .await?;
+        .attach(user::stage());
+
+    //TODO option for admin
+    //TODO option for list
+    //.attach(AdHoc::on_liftoff("Database Cleanning Auto", |rocket| {
+    //rocket::tokio::task::spawn(async move {
+    //loop {
+    //let client = Client::tracked(rocket).unwrap();
+    //let response = client.get("/user/clean").dispatch();
+
+    ////rocket::tokio::time::sleep(Duration::from_secs(10)).await;
+    //}
+    //}
+    //)
+    //}))
+    let _ = r.launch().await?;
 
     Ok(())
 }
