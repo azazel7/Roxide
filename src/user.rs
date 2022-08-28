@@ -97,16 +97,12 @@ async fn post(
 ///
 /// An error is return if the id doesn't exist or if the image has expired. In the case of an
 /// expired image, the function triggers a cleanning of the database.
-#[get("/get/<token>/<id>")]
+#[get("/get/<id>")]
 async fn get(
     app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
-    token: &str,
     id: ImageId,
 ) -> (ContentType, Option<File>) {
-    if !is_token_valid(token) {
-        return (ContentType::Any, None);
-    }
     //Retrieve the database entry
     let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
         .bind(id.get_id())
