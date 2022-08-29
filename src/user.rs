@@ -114,47 +114,68 @@ async fn get(
     app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     id: ImageId,
-) -> (ContentType, Option<File>) {
+) -> Result<(ContentType, File), RoxideError> {
     //Retrieve the database entry
-    let db_entry = sqlx::query("SELECT expiration_date, content_type FROM images WHERE id = $1")
+    let row = sqlx::query("SELECT expiration_date, content_type FROM images WHERE id = $1")
         .bind(id.get_id())
         .fetch_one(&mut *db)
-        .await;
+        .await?;
     let mut content_type = ContentType::Any;
-    if let Ok(row) = db_entry {
-        let expiration_date = row.get::<i64, &str>("expiration_date");
-        let now = Utc::now().timestamp();
-        //Check expiration date and clean the database if expired
-        if expiration_date <= now {
-            if clean_expired_images(app_config, db).await.is_err() {
-                eprintln!("Couldn't clean database");
-            }
-            return (ContentType::Any, None);
+    let expiration_date = row.get::<i64, &str>("expiration_date");
+    let now = Utc::now().timestamp();
+
+    //Check expiration date and clean the database if expired
+    if expiration_date <= now {
+        // FIXME ok, this a copy-paste of clean_expired_images as Rust and Rocket won't allow to
+        // passe connections through async function.
+
+        //Select all expired images
+        let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
+            .bind(&now)
+            .fetch_all(&mut **db)
+            .await?;
+
+        //Iterate over the row to delete the files
+        for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
+            let id = ImageId::from(id);
+            fs::remove_file(id.file_path(&app_config.upload_directory))?;
         }
-        content_type = ContentType::parse_flexible(row.get::<&str, &str>("content_type")).unwrap_or(ContentType::Any);
-    } else {
-        //The entry in the database cannot be found.
-        return (ContentType::Any, None);
+
+        //Delete the expired images from the database
+        sqlx::query("DELETE FROM images WHERE expiration_date < $1")
+            .bind(&now)
+            .execute(&mut **db)
+            .await?;
     }
 
+    content_type = ContentType::parse_flexible(row.get::<&str, &str>("content_type"))
+        .unwrap_or(ContentType::Any);
+
+    //Delete the expired images from the database
+    sqlx::query("UPDATE images SET download_count = download_count+1 WHERE id = $1")
+        .bind(id.get_id())
+        .execute(&mut **db)
+        .await?;
+
     //ContentType is set to PNG as there is no ContentType that designates an image in general.
-    (
+    Ok((
         content_type,
-        File::open(id.file_path(&app_config.upload_directory))
-            .await
-            .ok(),
-    )
+        File::open(id.file_path(&app_config.upload_directory)).await?,
+    ))
 }
 
 /// Function that clean the database from expired images.
 #[get("/clean")]
 async fn clean(app_config: &State<AppConfig>, db: Connection<Canard>) -> Option<File> {
-    clean_expired_images(app_config, db).await;
+    clean_expired_images(app_config, db).await.unwrap();
     None
 }
 
 /// Function that clean the database from expired images (it is called by clean and get).
-async fn clean_expired_images(app_config: &State<AppConfig>, mut db: Connection<Canard>) -> Result<(), RoxideError>{
+async fn clean_expired_images(
+    app_config: &State<AppConfig>,
+    mut db: Connection<Canard>,
+) -> Result<(), RoxideError> {
     let now = Utc::now().timestamp();
 
     //Select all expired images
