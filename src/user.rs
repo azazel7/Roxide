@@ -14,6 +14,8 @@ use rocket::State;
 
 use rocket_db_pools::Connection;
 
+use infer;
+
 use sqlx::Row;
 
 use crate::{is_token_valid, AppConfig, Canard, ImageId, RoxideError};
@@ -23,6 +25,7 @@ use crate::{is_token_valid, AppConfig, Canard, ImageId, RoxideError};
 struct Upload<'f> {
     upload: TempFile<'f>,
     duration: Option<i64>,
+    unlisted: Option<bool>,
 }
 
 /// Function that process a new posted image.
@@ -47,18 +50,23 @@ async fn post(
         id = ImageId::new(app_config.id_length);
     }
 
+
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
         return Err(RoxideError::Roxide("Expired image".to_string()));
     }
+    let mut size = 0;
+    let mut content_type = "";
     if let Some(image_path) = img.upload.path() {
-        let img = ImageReader::open(image_path)?;
-        let dec = img.with_guessed_format()?;
-        let dec = dec.decode();
-        if dec.is_err() {
-            return Err(RoxideError::Roxide("Not an image".to_string()));
-        }
+
+        let kind = infer::get_from_path(image_path)
+        .expect("file read successfully");
+
+        content_type = if let Some(s) = kind { s.mime_type()} else {"unknown"};
+        let metadata = fs::metadata(image_path)?;
+        size = metadata.len() as i64;
+
     } else {
         return Err(RoxideError::Roxide("No path to the image".to_string()));
     }
@@ -72,19 +80,23 @@ async fn post(
     .bind(&time_limit)
     .fetch_one(&mut *db)
     .await?;
+
     let count = db_count.get::<i64, &str>("count") as usize;
     if count >= app_config.max_upload {
         return Err(RoxideError::Roxide("Too much upload".to_string()));
     }
 
+    let public = img.unlisted.unwrap_or(true);
     sqlx::query(
-        "INSERT INTO images (id, expiration_date, upload_date, token_used, is_image) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        "INSERT INTO images (id, expiration_date, upload_date, token_used, content_type, size, download_count, public) VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *",
     )
     .bind(id.get_id())
     .bind(&expiration)
     .bind(&now)
     .bind(&token)
-    .bind(&true)
+    .bind(content_type)
+    .bind(&size)
+    .bind(&public)
     .execute(&mut *db)
     .await?;
     img.upload
@@ -104,10 +116,11 @@ async fn get(
     id: ImageId,
 ) -> (ContentType, Option<File>) {
     //Retrieve the database entry
-    let db_entry = sqlx::query("SELECT expiration_date FROM images WHERE id = $1")
+    let db_entry = sqlx::query("SELECT expiration_date, content_type FROM images WHERE id = $1")
         .bind(id.get_id())
         .fetch_one(&mut *db)
         .await;
+    let mut content_type = ContentType::Any;
     if let Ok(row) = db_entry {
         let expiration_date = row.get::<i64, &str>("expiration_date");
         let now = Utc::now().timestamp();
@@ -118,6 +131,7 @@ async fn get(
             }
             return (ContentType::Any, None);
         }
+        content_type = ContentType::parse_flexible(row.get::<&str, &str>("content_type")).unwrap_or(ContentType::Any);
     } else {
         //The entry in the database cannot be found.
         return (ContentType::Any, None);
@@ -125,7 +139,7 @@ async fn get(
 
     //ContentType is set to PNG as there is no ContentType that designates an image in general.
     (
-        ContentType::PNG,
+        content_type,
         File::open(id.file_path(&app_config.upload_directory))
             .await
             .ok(),

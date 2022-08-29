@@ -69,13 +69,13 @@ async fn main() -> Result<(), RoxideError> {
 				None => return Err(rocket),
 			};
 
-            let expired_rows = sqlx::query("SELECT id, expiration_date, upload_date, token_used, is_image FROM images")
+            let expired_rows = sqlx::query("SELECT id, expiration_date, upload_date, token_used, content_type, download_count, public, size FROM images")
                 .fetch_all(&**conn)
                 .await;
             if expired_rows.is_err() {
                 eprintln!("Initializing Database");
                 let create = sqlx::query(
-                    "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, is_image BOOL);",
+                    "CREATE TABLE images (id TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, content_type TEXT, download_count UNSIGNED BIG INT, public BOOL, size UNSIGNED BIG INT);",
                 )
                 .execute(&**conn)
                 .await;
