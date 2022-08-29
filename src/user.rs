@@ -50,7 +50,6 @@ async fn post(
         id = ImageId::new(app_config.id_length);
     }
 
-
     let now = Utc::now().timestamp();
     let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
@@ -59,14 +58,15 @@ async fn post(
     let mut size = 0;
     let mut content_type = "";
     if let Some(image_path) = img.upload.path() {
+        let kind = infer::get_from_path(image_path).expect("file read successfully");
 
-        let kind = infer::get_from_path(image_path)
-        .expect("file read successfully");
-
-        content_type = if let Some(s) = kind { s.mime_type()} else {"unknown"};
+        content_type = if let Some(s) = kind {
+            s.mime_type()
+        } else {
+            "unknown"
+        };
         let metadata = fs::metadata(image_path)?;
         size = metadata.len() as i64;
-
     } else {
         return Err(RoxideError::Roxide("No path to the image".to_string()));
     }
