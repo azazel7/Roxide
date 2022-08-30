@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 
 ///The structure to manage ids of images.
 #[derive(Debug)]
-pub struct ImageId {
+pub struct FileId {
     id: String,
 }
 
-impl ImageId {
-    ///Build a new ImageId with an id size based on the *size* parameter.
+impl FileId {
+    ///Build a new FileId with an id size based on the *size* parameter.
     pub fn new(size: usize) -> Self {
         //All the symbols to use
         const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -26,7 +26,7 @@ impl ImageId {
         Self { id }
     }
 
-    ///Build a new ImageId from an existing id.
+    ///Build a new FileId from an existing id.
     pub fn from(id: &str) -> Self {
         Self { id: id.to_string() }
     }
@@ -43,7 +43,7 @@ impl ImageId {
 }
 
 ///Allows to build an ImageId from a String, assuming this string is alphanumeric.
-impl<'a> FromParam<'a> for ImageId {
+impl<'a> FromParam<'a> for FileId {
     type Error = &'a str;
 
     fn from_param(param: &'a str) -> Result<Self, Self::Error> {

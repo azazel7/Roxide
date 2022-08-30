@@ -1,7 +1,7 @@
 //https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
-mod image_id;
+mod file_id;
 mod user;
 
 use std::fs;
@@ -19,7 +19,7 @@ use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
 use sqlx::Row;
 
-use crate::image_id::ImageId;
+use crate::file_id::FileId;
 
 #[derive(Debug, thiserror::Error)]
 enum RoxideError {
@@ -69,13 +69,13 @@ async fn main() -> Result<(), RoxideError> {
 				None => return Err(rocket),
 			};
 
-            let expired_rows = sqlx::query("SELECT id, title, expiration_date, upload_date, token_used, content_type, download_count, public, size FROM images")
+            let expired_rows = sqlx::query("SELECT id, title, expiration_date, upload_date, token_used, content_type, download_count, public, size FROM files")
                 .fetch_all(&**conn)
                 .await;
             if expired_rows.is_err() {
                 eprintln!("Initializing Database");
                 let create = sqlx::query(
-                    "CREATE TABLE images (id TEXT, title TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, content_type TEXT, download_count UNSIGNED BIG INT, public BOOL, size UNSIGNED BIG INT);",
+                    "CREATE TABLE files (id TEXT, title TEXT, expiration_date UNSIGNED BIG INT, upload_date UNSIGNED BIG INT, token_used TEXT, content_type TEXT, download_count UNSIGNED BIG INT, public BOOL, size UNSIGNED BIG INT);",
                 )
                 .execute(&**conn)
                 .await;
@@ -90,7 +90,7 @@ async fn main() -> Result<(), RoxideError> {
                 if !Path::new(&app_config.upload_directory).exists() {
                     let creation = fs::create_dir(&app_config.upload_directory);
                     if creation.is_err() {
-                        panic!("The directory to store images cannot be created.");
+                        panic!("The directory to store files cannot be created.");
                     }
                 }
             }
@@ -103,19 +103,19 @@ async fn main() -> Result<(), RoxideError> {
                     None => panic!("Cannot fetch database"),
                 };
                 let now = Utc::now().timestamp();
-                let expired_rows = sqlx::query("SELECT id FROM images WHERE expiration_date < $1")
+                let expired_rows = sqlx::query("SELECT id FROM files WHERE expiration_date < $1")
                     .bind(&now)
                     .fetch_all(&**conn)
                     .await;
                 if let Ok(expired_rows) = expired_rows {
                     for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
-                        let id = ImageId::from(id);
+                        let id = FileId::from(id);
                         let deleted = fs::remove_file(id.file_path("./upload"));
                         if let Err(err) = deleted {
                             eprintln!("Cannot delete {:?}", err);
                         }
                     }
-                    sqlx::query("DELETE FROM images WHERE expiration_date < $1")
+                    sqlx::query("DELETE FROM files WHERE expiration_date < $1")
                         .bind(&now)
                         .execute(&**conn)
                         .await
