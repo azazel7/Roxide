@@ -6,21 +6,25 @@ mod user;
 
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 use chrono::Utc;
 
 use rocket::fairing::AdHoc;
 use rocket::local::blocking::Client;
-use rocket::serde::Deserialize;
-//use rocket::Responder;
 use rocket::response::Responder;
+use rocket::serde::Deserialize;
+use rocket::config::Config;
 
 use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
+
 use sqlx::Row;
+use sqlx::SqlitePool;
 
 use crate::file_id::FileId;
 
+/// Error for roxide, returned as much as possible
 #[derive(Debug, thiserror::Error)]
 enum RoxideError {
     #[error("roxide : {0}")]
@@ -32,6 +36,10 @@ enum RoxideError {
     #[error("IO : {0}")]
     IO(#[from] std::io::Error),
 }
+
+/// Implement Responder for RoxideError so it can be returned by Rocket.
+///
+/// The function simply return the to_string of the error.
 impl<'r> Responder<'r, 'static> for RoxideError {
     fn respond_to(self, req: &'r rocket::Request<'_>) -> rocket::response::Result<'static> {
         let string = self.to_string();
@@ -41,21 +49,28 @@ impl<'r> Responder<'r, 'static> for RoxideError {
     }
 }
 
+/// Structure that contains the configuration of Roxide.
+///
+/// This configuration is extracted from Rocket.toml.
 #[derive(Debug, Deserialize)]
 #[serde(crate = "rocket::serde")]
 struct AppConfig {
     upload_directory: String,
     id_length: usize,
     max_upload: usize,
+    cleaning_frequency: usize,
+    url : String,
 }
 
-fn is_token_valid(_token: &str) -> bool {
-    true
-}
-
+/// Type that encapsulate a connection to the database
 #[derive(Database)]
 #[database("sqlite_logs")]
 struct Canard(sqlx::SqlitePool);
+
+/// Function that check if a token is valid.
+fn is_token_valid(_token: &str) -> bool {
+    true
+}
 
 #[rocket::main]
 async fn main() -> Result<(), RoxideError> {
@@ -125,20 +140,41 @@ async fn main() -> Result<(), RoxideError> {
         }))
         .attach(user::stage());
 
-    //TODO option for admin
-    //TODO option for list
-    //.attach(AdHoc::on_liftoff("Database Cleanning Auto", |rocket| {
-    //rocket::tokio::task::spawn(async move {
-    //loop {
-    //let client = Client::tracked(rocket).unwrap();
-    //let response = client.get("/user/clean").dispatch();
+    let r = r.ignite().await?;
 
-    ////rocket::tokio::time::sleep(Duration::from_secs(10)).await;
-    //}
-    //}
-    //)
-    //}))
+
+    let app_config = Config::figment().extract::<AppConfig>().unwrap();
+    let cleaning_frequency = app_config.cleaning_frequency as u64;
+    let upload_directory = app_config.upload_directory.to_string();
+
+    rocket::tokio::task::spawn(async move {
+        let conn = SqlitePool::connect("database.sqlite").await.unwrap();
+        loop {
+            rocket::tokio::time::sleep(Duration::from_secs(cleaning_frequency)).await;
+            let now = Utc::now().timestamp();
+            let expired_rows = sqlx::query("SELECT id FROM files WHERE expiration_date < $1")
+                .bind(&now)
+                .fetch_all(&conn)
+                .await;
+            if let Ok(expired_rows) = expired_rows {
+                for id in expired_rows.iter().map(|row| row.get::<&str, &str>("id")) {
+                    let id = FileId::from(id);
+                    let deleted = fs::remove_file(id.file_path(&upload_directory));
+                    if let Err(err) = deleted {
+                        eprintln!("Cannot delete {:?}", err);
+                    }
+                }
+                sqlx::query("DELETE FROM files WHERE expiration_date < $1")
+                    .bind(&now)
+                    .execute(&conn)
+                    .await
+                    .unwrap();
+            }
+        }
+    });
+
     let _ = r.launch().await?;
+
 
     Ok(())
 }

@@ -20,7 +20,7 @@ use crate::{is_token_valid, AppConfig, Canard, FileId, RoxideError};
 
 //Structure use to receive the form that post a file.
 #[derive(Debug, FromForm)]
-struct Upload<'f> {
+struct UploadFile<'f> {
     upload: TempFile<'f>,
     title : String,
     duration: Option<i64>,
@@ -38,7 +38,7 @@ async fn post(
     app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
-    mut img: Form<Upload<'_>>,
+    mut img: Form<UploadFile<'_>>,
 ) -> Result<String, RoxideError> {
     if !is_token_valid(token) {
         return Err(RoxideError::Roxide("Token not valid".to_string()));
@@ -58,11 +58,7 @@ async fn post(
     if let Some(file_path) = img.upload.path() {
         let kind = infer::get_from_path(file_path).expect("file read successfully");
 
-        content_type = if let Some(s) = kind {
-            s.mime_type()
-        } else {
-            "unknown"
-        };
+        content_type = kind.map_or("unknown", |s| s.mime_type());
         let metadata = fs::metadata(file_path)?;
         size = metadata.len() as i64;
     } else {
@@ -172,7 +168,9 @@ pub struct FileData {
     download_count: i64,
     size: i64,
 }
+
 type ListFiles = Vec<FileData>;
+
 #[get("/list/<token>")]
 async fn list(
     _app_config: &State<AppConfig>,
