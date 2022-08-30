@@ -9,6 +9,8 @@ use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::http::ContentType;
+use rocket::serde::json::Json;
+use rocket::serde::Serialize;
 use rocket::tokio::fs::File;
 use rocket::State;
 
@@ -164,6 +166,46 @@ async fn get(
     ))
 }
 
+#[derive(Debug, Serialize)]
+#[serde(crate = "rocket::serde")]
+pub struct ImageData {
+    id: String,
+    upload_date: i64,
+    content_type: String,
+    download_count: i64,
+    size: i64,
+}
+type ListImages = Vec<ImageData>;
+#[get("/list/<token>")]
+async fn list(
+    app_config: &State<AppConfig>,
+    mut db: Connection<Canard>,
+    token: &str,
+) -> Result<Json<ListImages>, RoxideError> {
+    if !is_token_valid(token) {
+        return Err(RoxideError::Roxide("Token not valid".to_string()));
+    }
+    //Retrieve the database entry
+    let now = Utc::now().timestamp();
+    let public_images = sqlx::query("SELECT id, upload_date, content_type, download_count, size FROM images WHERE public = true AND expiration_date > $1")
+        .bind(&now)
+        .fetch_all(&mut *db)
+        .await?;
+
+    let it = public_images
+        .iter()
+        .map(|row| ImageData {
+            id: row.get::<String, &str>("id"),
+            upload_date: row.get::<i64, &str>("upload_date"),
+            content_type: row.get::<String, &str>("content_type"),
+            download_count: row.get::<i64, &str>("download_count"),
+            size: row.get::<i64, &str>("size"),
+        })
+        .collect::<ListImages>();
+
+    Ok(Json(it))
+}
+
 /// Function that clean the database from expired images.
 #[get("/clean")]
 async fn clean(app_config: &State<AppConfig>, db: Connection<Canard>) -> Option<File> {
@@ -205,6 +247,6 @@ async fn clean_expired_images(
 /// - clean (to trigger a cleanning of the database)
 pub fn stage() -> AdHoc {
     AdHoc::on_ignite("User stage", |rocket| async {
-        rocket.mount("/user", routes![get, post, clean])
+        rocket.mount("/user", routes![get, post, clean, list])
     })
 }
