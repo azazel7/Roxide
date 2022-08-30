@@ -51,6 +51,6 @@ impl<'a> FromParam<'a> for ImageId {
             .chars()
             .all(|c| c.is_ascii_alphanumeric())
             .then(|| Self { id: param.into() })
-            .ok_or(param)
+            .ok_or("token read from parameter is invalid")
     }
 }
