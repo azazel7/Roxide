@@ -88,7 +88,8 @@ async fn post(
         return Err(RoxideError::Roxide("Too much upload".to_string()));
     }
 
-    let public = img.unlisted.unwrap_or(true);
+    let public = !img.unlisted.unwrap_or(true);
+
     sqlx::query(
         "INSERT INTO images (id, expiration_date, upload_date, token_used, content_type, size, download_count, public) VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *",
     )
