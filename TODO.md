@@ -3,12 +3,13 @@
 	- [x] Count the last upload in the last hour for a token.
 	- [x] Block a post of a token if it has uploaded more than max_upload.
 - [x] Add content-type to the database.
-- [ ] Check token with reddis.
+- [x] Check token with reddis.
 - [x] Counter for how often an image is downloaded.
 - [x] Add size of image in database.
 - [x] Add attribute to the image if it's public or not.
 	- [x] By default, it is public (we share everything)
 	- [x] Add function to list all public images.
+- [x] Periodically clean the database.
 - [ ] Admin url
 	- [ ] Admin tokens in config files.
 	- [ ] Function to check if token is admin.
@@ -17,3 +18,4 @@
 		- [ ] Delete an image.
 		- [ ] Set expiration date for image.
 	- [ ] Make it optional
+- [ ] Add tests.

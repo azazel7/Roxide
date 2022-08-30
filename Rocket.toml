@@ -8,4 +8,5 @@ limits = { file = "15MiB", data-form = "15MiB"}
 max_upload = 1500
 cleaning_frequency = 1800
 url = "./database.sqlite"
+check_token = false
 

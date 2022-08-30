@@ -26,6 +26,7 @@ limits = { file = "15MiB", data-form = "15MiB"}
 max_upload = 1500
 cleaning_frequency = 1800
 url = "./database.sqlite"
+check_token = true
 ```
 
 - `url` Indicate the path to the sqlite database. Both fiel must be equal.
@@ -34,6 +35,7 @@ url = "./database.sqlite"
 - `limits` is a field used by Rocket to define the maximum size that can be submitted. See [here](https://api.rocket.rs/v0.5-rc/rocket/data/struct.Limits.html#built-in-limits) and [here](https://rocket.rs/v0.5-rc/guide/configuration/#limits) for more information.
 - `max_upload` Indicates the maximum upload a token can do per hour.
 - `cleaning_frequency` is the time in second between two periodic cleaning of the database.
+- `check_token` indicates if we should check the token with redis.
 
 ## Deploy
 ```sh

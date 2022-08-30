@@ -22,7 +22,7 @@ use crate::{is_token_valid, AppConfig, Canard, FileId, RoxideError};
 #[derive(Debug, FromForm)]
 struct UploadFile<'f> {
     upload: TempFile<'f>,
-    title : String,
+    title: String,
     duration: Option<i64>,
     unlisted: Option<bool>,
 }
@@ -33,14 +33,14 @@ struct UploadFile<'f> {
 /// - the token is valid.
 /// - the duration is correct.
 ///
-#[post("/post/<token>", data = "<img>")]
+#[post("/post/<token>", data = "<upload_form>")]
 async fn post(
     app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
-    mut img: Form<UploadFile<'_>>,
+    mut upload_form: Form<UploadFile<'_>>,
 ) -> Result<String, RoxideError> {
-    if !is_token_valid(token) {
+    if !is_token_valid(token, app_config) {
         return Err(RoxideError::Roxide("Token not valid".to_string()));
     }
     let mut id = FileId::new(app_config.id_length);
@@ -49,13 +49,15 @@ async fn post(
     }
 
     let now = Utc::now().timestamp();
-    let expiration = img.duration.map_or(i64::MAX - 1, |duration| now + duration);
+    let expiration = upload_form
+        .duration
+        .map_or(i64::MAX - 1, |duration| now + duration);
     if expiration < now {
         return Err(RoxideError::Roxide("Expired file".to_string()));
     }
     let size;
     let content_type;
-    if let Some(file_path) = img.upload.path() {
+    if let Some(file_path) = upload_form.upload.path() {
         let kind = infer::get_from_path(file_path).expect("file read successfully");
 
         content_type = kind.map_or("unknown", |s| s.mime_type());
@@ -80,8 +82,10 @@ async fn post(
         return Err(RoxideError::Roxide("Too much upload".to_string()));
     }
 
-    let public = !img.unlisted.unwrap_or(true);
+    // Set if the the file is public from the unlisted parameter
+    let public = !upload_form.unlisted.unwrap_or(true);
 
+    // Insert the new entry to the database
     sqlx::query(
         "INSERT INTO files (id, expiration_date, upload_date, token_used, content_type, size, download_count, public, title) VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8) RETURNING *",
     )
@@ -92,12 +96,25 @@ async fn post(
     .bind(content_type)
     .bind(&size)
     .bind(&public)
-    .bind(&img.title)
+    .bind(&upload_form.title)
     .execute(&mut *db)
     .await?;
-    img.upload
+
+    //If everything went nicely, copy the file
+    let copy = upload_form
+        .upload
         .copy_to(id.file_path(&app_config.upload_directory))
-        .await?;
+        .await;
+
+    // Failed to copy, so we delete entry from database then we propagate the error
+    if let Err(copy) = copy {
+        sqlx::query("DELETE files WHERE id = $1")
+            .bind(id.get_id())
+            .execute(&mut *db)
+            .await?;
+
+        return Err(RoxideError::IO(copy));
+    }
     Ok(id.get_id().to_string())
 }
 
@@ -173,11 +190,11 @@ type ListFiles = Vec<FileData>;
 
 #[get("/list/<token>")]
 async fn list(
-    _app_config: &State<AppConfig>,
+    app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
 ) -> Result<Json<ListFiles>, RoxideError> {
-    if !is_token_valid(token) {
+    if !is_token_valid(token, app_config) {
         return Err(RoxideError::Roxide("Token not valid".to_string()));
     }
     //Retrieve the database entry

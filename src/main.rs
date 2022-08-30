@@ -1,4 +1,3 @@
-//https://github.com/kidanger/ipol-demorunner/blob/master/src/compilation.rs
 #[macro_use]
 extern crate rocket;
 mod file_id;
@@ -10,17 +9,18 @@ use std::time::Duration;
 
 use chrono::Utc;
 
+use rocket::config::Config;
 use rocket::fairing::AdHoc;
-use rocket::local::blocking::Client;
 use rocket::response::Responder;
 use rocket::serde::Deserialize;
-use rocket::config::Config;
 
 use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
 
 use sqlx::Row;
 use sqlx::SqlitePool;
+
+use redis::Commands;
 
 use crate::file_id::FileId;
 
@@ -59,7 +59,8 @@ struct AppConfig {
     id_length: usize,
     max_upload: usize,
     cleaning_frequency: usize,
-    url : String,
+    url: String,
+    check_token: bool,
 }
 
 /// Type that encapsulate a connection to the database
@@ -67,9 +68,20 @@ struct AppConfig {
 #[database("sqlite_logs")]
 struct Canard(sqlx::SqlitePool);
 
+fn get_redis_connection() -> redis::RedisResult<redis::Connection> {
+    let client = redis::Client::open("redis://127.0.0.1/")?;
+    client.get_connection()
+}
 /// Function that check if a token is valid.
-fn is_token_valid(_token: &str) -> bool {
-    true
+fn is_token_valid(token: &str, app_config: &AppConfig) -> bool {
+    if app_config.check_token {
+        let key = format!("bot:tokens:{}", token);
+        get_redis_connection()
+            .and_then(|mut con| con.exists(key))
+            .unwrap_or(false)
+    } else {
+        true
+    }
 }
 
 #[rocket::main]
@@ -142,13 +154,13 @@ async fn main() -> Result<(), RoxideError> {
 
     let r = r.ignite().await?;
 
-
     let app_config = Config::figment().extract::<AppConfig>().unwrap();
     let cleaning_frequency = app_config.cleaning_frequency as u64;
     let upload_directory = app_config.upload_directory.to_string();
+    let database_url = app_config.url.to_string();
 
     rocket::tokio::task::spawn(async move {
-        let conn = SqlitePool::connect("database.sqlite").await.unwrap();
+        let conn = SqlitePool::connect(&database_url).await.unwrap();
         loop {
             rocket::tokio::time::sleep(Duration::from_secs(cleaning_frequency)).await;
             let now = Utc::now().timestamp();
@@ -174,7 +186,6 @@ async fn main() -> Result<(), RoxideError> {
     });
 
     let _ = r.launch().await?;
-
 
     Ok(())
 }
