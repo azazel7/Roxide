@@ -26,6 +26,7 @@ use crate::{is_token_valid, AppConfig, Canard, ImageId, RoxideError};
 #[derive(Debug, FromForm)]
 struct Upload<'f> {
     upload: TempFile<'f>,
+    title : String,
     duration: Option<i64>,
     unlisted: Option<bool>,
 }
@@ -57,8 +58,8 @@ async fn post(
     if expiration < now {
         return Err(RoxideError::Roxide("Expired image".to_string()));
     }
-    let mut size = 0;
-    let mut content_type = "";
+    let size;
+    let content_type;
     if let Some(image_path) = img.upload.path() {
         let kind = infer::get_from_path(image_path).expect("file read successfully");
 
@@ -91,7 +92,7 @@ async fn post(
     let public = !img.unlisted.unwrap_or(true);
 
     sqlx::query(
-        "INSERT INTO images (id, expiration_date, upload_date, token_used, content_type, size, download_count, public) VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING *",
+        "INSERT INTO images (id, expiration_date, upload_date, token_used, content_type, size, download_count, public, title) VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8) RETURNING *",
     )
     .bind(id.get_id())
     .bind(&expiration)
@@ -100,6 +101,7 @@ async fn post(
     .bind(content_type)
     .bind(&size)
     .bind(&public)
+    .bind(&img.title)
     .execute(&mut *db)
     .await?;
     img.upload
