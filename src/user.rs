@@ -3,8 +3,6 @@ use std::path::Path;
 
 use chrono::Utc;
 
-use image::io::Reader as ImageReader;
-
 use rocket::fairing::AdHoc;
 use rocket::form::Form;
 use rocket::fs::TempFile;
@@ -15,8 +13,6 @@ use rocket::tokio::fs::File;
 use rocket::State;
 
 use rocket_db_pools::Connection;
-
-use infer;
 
 use sqlx::Row;
 
@@ -124,7 +120,6 @@ async fn get(
         .bind(id.get_id())
         .fetch_one(&mut *db)
         .await?;
-    let mut content_type = ContentType::Any;
     let expiration_date = row.get::<i64, &str>("expiration_date");
     let now = Utc::now().timestamp();
 
@@ -152,7 +147,7 @@ async fn get(
             .await?;
     }
 
-    content_type = ContentType::parse_flexible(row.get::<&str, &str>("content_type"))
+    let content_type = ContentType::parse_flexible(row.get::<&str, &str>("content_type"))
         .unwrap_or(ContentType::Any);
 
     //Delete the expired files from the database
@@ -180,7 +175,7 @@ pub struct FileData {
 type ListFiles = Vec<FileData>;
 #[get("/list/<token>")]
 async fn list(
-    app_config: &State<AppConfig>,
+    _app_config: &State<AppConfig>,
     mut db: Connection<Canard>,
     token: &str,
 ) -> Result<Json<ListFiles>, RoxideError> {
