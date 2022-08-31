@@ -83,7 +83,7 @@ async fn post(
     }
 
     // Set if the the file is public from the unlisted parameter
-    let public = !upload_form.unlisted.unwrap_or(true);
+    let public = !upload_form.unlisted.unwrap_or(false);
 
     // Insert the new entry to the database
     sqlx::query(
