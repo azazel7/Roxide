@@ -184,6 +184,7 @@ pub struct FileData {
     content_type: String,
     download_count: i64,
     size: i64,
+    title: String,
 }
 
 type ListFiles = Vec<FileData>;
@@ -199,7 +200,7 @@ async fn list(
     }
     //Retrieve the database entry
     let now = Utc::now().timestamp();
-    let public_files = sqlx::query("SELECT id, upload_date, content_type, download_count, size FROM files WHERE public = true AND expiration_date > $1")
+    let public_files = sqlx::query("SELECT id, upload_date, content_type, download_count, size, title FROM files WHERE public = true AND expiration_date > $1")
         .bind(&now)
         .fetch_all(&mut *db)
         .await?;
@@ -212,6 +213,7 @@ async fn list(
             content_type: row.get::<String, &str>("content_type"),
             download_count: row.get::<i64, &str>("download_count"),
             size: row.get::<i64, &str>("size"),
+            title: row.get::<String, &str>("title"),
         })
         .collect::<ListFiles>();
 
