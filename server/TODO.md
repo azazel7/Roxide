@@ -19,3 +19,5 @@
 		- [ ] Set expiration date for image.
 	- [ ] Make it optional
 - [ ] Add tests.
+- [ ] Make sure title is an option in the post.
+- [ ] Improve documentation of how to submit and access data.
