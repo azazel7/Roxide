@@ -21,3 +21,4 @@
 - [ ] Add tests.
 - [ ] Make sure title is an option in the post.
 - [ ] Improve documentation of how to submit and access data.
+- [ ] 404 error when ID doesn't exist.
