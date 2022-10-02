@@ -1,0 +1,26 @@
+[package]
+name = "roxide-front"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+js-sys = "0.3"
+yew = "0.19"
+gloo-file = "0.2"
+gloo-net = "0.2"
+# see https://lazamar.co.uk/nix-versions/?channel=nixpkgs-unstable&package=wasm-bindgen-cli
+wasm-bindgen = "=0.2.82"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "File",
+  "Headers",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Window",
+  "FormData",
+  "Blob",
+]
