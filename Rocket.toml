@@ -9,4 +9,5 @@ max_upload = 1500
 cleaning_frequency = 1800
 url = "./database.sqlite"
 check_token = false
+front_sources = "./front/dist"
 

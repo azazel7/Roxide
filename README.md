@@ -4,30 +4,22 @@ Roxide is backend web app to upload, store, and share files. The submitted file 
 
 ## Install
 
-Using cargo and git :
+Using cargo and git:
 
 ```sh
 git clone https://github.com/azazel7/Roxide.git 
 cd Roxide
 cargo build
 ```
+
+Using nix:
+```sh
+nix run github:azazel7/Roxide
+```
+
 ## Configure
 
-Use the file Rocket.toml to configure Roxide.
-
-```
-[default.databases.sqlite_logs]
-url = "./database.sqlite"
-
-[default]
-upload_directory = "./upload"
-id_length = 10
-limits = { file = "15MiB", data-form = "15MiB"}
-max_upload = 1500
-cleaning_frequency = 1800
-url = "./database.sqlite"
-check_token = true
-```
+Use the file `Rocket.toml` to configure Roxide.
 
 - `url` Indicate the path to the sqlite database. Both fiel must be equal.
 - `upload_directory` Indicate the directory where files will be stored.
@@ -36,8 +28,10 @@ check_token = true
 - `max_upload` Indicates the maximum upload a token can do per hour.
 - `cleaning_frequency` is the time in second between two periodic cleaning of the database.
 - `check_token` indicates if we should check the token with redis.
+- `front_sources` indicates the path to the front sources (index.html and other files)
 
 ## Deploy
+
 ```sh
 cargo run
 ```

@@ -11,10 +11,10 @@ use chrono::Utc;
 
 use rocket::config::Config;
 use rocket::fairing::AdHoc;
-use rocket::response::Responder;
-use rocket::serde::Deserialize;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
+use rocket::response::Responder;
+use rocket::serde::Deserialize;
 use rocket::{Request, Response};
 
 use rocket_db_pools::sqlx;
@@ -34,13 +34,16 @@ impl Fairing for CORS {
     fn info(&self) -> Info {
         Info {
             name: "Add CORS headers to responses",
-            kind: Kind::Response
+            kind: Kind::Response,
         }
     }
 
     async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
         response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS"));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "POST, GET, PATCH, OPTIONS",
+        ));
         response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
     }
@@ -83,6 +86,7 @@ struct AppConfig {
     cleaning_frequency: usize,
     url: String,
     check_token: bool,
+    front_sources: std::path::PathBuf,
 }
 
 /// Type that encapsulate a connection to the database
@@ -108,6 +112,7 @@ fn is_token_valid(token: &str, app_config: &AppConfig) -> bool {
 
 #[rocket::main]
 async fn main() -> Result<(), RoxideError> {
+    let app_config = Config::figment().extract::<AppConfig>().unwrap();
     let mut r = rocket::build();
 
     r = r.attach(Canard::init())
@@ -172,13 +177,12 @@ async fn main() -> Result<(), RoxideError> {
                 }
             })
         }))
-		.attach(CORS)
-        .attach(user::stage());
-
+        .attach(CORS)
+        .attach(user::stage())
+        .mount("/", rocket::fs::FileServer::from(app_config.front_sources));
 
     let r = r.ignite().await?;
 
-    let app_config = Config::figment().extract::<AppConfig>().unwrap();
     let cleaning_frequency = app_config.cleaning_frequency as u64;
     let upload_directory = app_config.upload_directory.to_string();
     let database_url = app_config.url.to_string();
