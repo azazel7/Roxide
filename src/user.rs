@@ -49,9 +49,8 @@ async fn post(
     }
 
     let now = Utc::now().timestamp();
-    let expiration = upload_form
-        .duration
-        .map_or(i64::MAX - 1, |duration| now + duration);
+    let expiration = (now + upload_form.duration.unwrap_or(app_config.default_duration))
+        .max(app_config.default_duration);
     if expiration < now {
         return Err(RoxideError::Roxide("Expired file".to_string()));
     }

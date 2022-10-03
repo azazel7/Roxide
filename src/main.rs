@@ -87,6 +87,7 @@ struct AppConfig {
     url: String,
     check_token: bool,
     front_sources: std::path::PathBuf,
+    default_duration: i64,
 }
 
 /// Type that encapsulate a connection to the database
