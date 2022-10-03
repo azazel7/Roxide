@@ -60,7 +60,7 @@
 
             buildPhase = ''
               export TRUNK_TOOLS_wasm_bindgen=$(wasm-bindgen --version | cut -f2 -d' ')
-              trunk build
+              trunk build --release
             '';
 
             installPhase = ''
