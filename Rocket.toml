@@ -10,4 +10,4 @@ cleaning_frequency = 1800
 url = "./database.sqlite"
 check_token = false
 front_sources = "./front/dist"
-
+default_duration = 9223372036854775806 # in seconds
