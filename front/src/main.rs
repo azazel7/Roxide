@@ -14,6 +14,7 @@ pub enum Msg {
 pub struct Model {
     files: Vec<File>,
     results: Vec<String>,
+    duration: Option<i64>,
 }
 
 fn get_location_token() -> Option<String> {
@@ -30,12 +31,15 @@ fn get_url_of(upload_id: &str) -> Option<String> {
     Some(format!("{protocol}//{host}/user/get/{upload_id}"))
 }
 
-async fn upload_file(file: File, token: &str) -> Result<Msg, JsValue> {
+async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<Msg, JsValue> {
     let name = file.name();
 
     let form = web_sys::FormData::new()?;
     form.append_with_blob_and_filename("upload", file.as_ref(), &name)?;
     form.append_with_str("title", &name)?;
+    if let Some(duration) = duration {
+        form.append_with_str("duration", &duration.to_string())?;
+    }
 
     let token = token.to_owned();
     let res = Request::post(&format!("/user/post/{}", token))
@@ -63,6 +67,7 @@ impl Component for Model {
         Self {
             files: vec![],
             results: vec![],
+            duration: None,
         }
     }
 
@@ -75,12 +80,12 @@ impl Component for Model {
                 true
             }
             Msg::Upload => {
-                let token = get_location_token();
-                if let Some(token) = token {
+                if let Some(token) = get_location_token() {
+                    let duration = self.duration;
                     self.files.drain(..).for_each(|file| {
                         let token = token.to_owned();
                         ctx.link().send_future(async move {
-                            match upload_file(file, &token).await {
+                            match upload_file(file, &token, duration).await {
                                 Ok(msg) => msg,
                                 Err(_) => todo!(),
                             }
