@@ -261,6 +261,6 @@ async fn clean_expired_files(
 /// - clean (to trigger a cleanning of the database)
 pub fn stage() -> AdHoc {
     AdHoc::on_ignite("User stage", |rocket| async {
-        rocket.mount("/user", routes![get, post, clean, list])
+        rocket.mount("/", routes![get, post, clean, list])
     })
 }
