@@ -32,19 +32,21 @@
 
         packages = {
           all = pkgs.writeShellScriptBin "roxide" ''
-            ROCKET_FRONT_SOURCES=${packages.frontend} exec ${packages.backend}/bin/roxide
+            ROCKET_FRONT_SOURCES=${packages.frontend} exec ${packages.backend}/bin/roxide-backend
           '';
 
           backend = naersk'.buildPackage {
-            src = ./.;
+            root = ./.;
+            cargoBuildOptions = x: x ++ [ "-p" "roxide-backend" ];
+            cargoTestOptions = x: x ++ [ "-p" "roxide-backend" ];
             nativeBuildInputs = with pkgs; [ openssl pkgconfig ];
           };
 
           frontend = pkgs.stdenv.mkDerivation {
-            pname = "roxide-front";
+            pname = "roxide-frontend";
             version = "0.1.0";
 
-            src = ./front;
+            src = ./roxide-frontend;
 
             nativeBuildInputs = with pkgs; [
               rustWithWasmTarget
@@ -53,7 +55,7 @@
               wasm-bindgen-cli
               sass
               (import-cargo.builders.importCargo {
-                lockFile = ./front/Cargo.lock;
+                lockFile = ./Cargo.lock;
                 inherit pkgs;
               }).cargoHome
             ];

@@ -30,8 +30,9 @@ Use the file `Rocket.toml` to configure Roxide.
 - `check_token` indicates if we should check the token with redis.
 - `front_sources` indicates the path to the front sources (index.html and other files)
 
-## Deploy
+## Run
 
 ```sh
-cargo run
+cd roxide-frontend && trunk build && cd ..
+cargo run --bin roxide-backend
 ```
