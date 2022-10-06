@@ -28,7 +28,7 @@ fn get_url_of(upload_id: &str) -> Option<String> {
     let location = window.location();
     let protocol = location.protocol().ok()?;
     let host = location.host().ok()?;
-    Some(format!("{protocol}//{host}/user/get/{upload_id}"))
+    Some(format!("{protocol}//{host}/get/{upload_id}"))
 }
 
 async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<Msg, JsValue> {
@@ -42,7 +42,7 @@ async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<M
     }
 
     let token = token.to_owned();
-    let res = Request::post(&format!("/user/post/{}", token))
+    let res = Request::post(&format!("/post/{}", token))
         .body(form)
         .send()
         .await;
