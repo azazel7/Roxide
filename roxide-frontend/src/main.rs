@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use wasm_bindgen::JsValue;
 use web_sys::{Event, HtmlInputElement, UrlSearchParams};
 use yew::{html, html::TargetCast, Component, Context, Html};
@@ -5,9 +7,12 @@ use yew::{html, html::TargetCast, Component, Context, Html};
 use gloo_file::File;
 use gloo_net::http::Request;
 
+#[derive(Clone)]
+pub struct Token(String);
+
 pub enum Msg {
     Files(Vec<File>),
-    Upload,
+    Upload(Token),
     Uploaded(String),
 }
 
@@ -18,10 +23,13 @@ pub struct Model {
     duration: Option<i64>,
 }
 
-fn get_location_token() -> Option<String> {
+fn get_location_token() -> Option<Token> {
     let window = web_sys::window()?;
     let search = window.location().search().ok()?;
-    UrlSearchParams::new_with_str(&search).ok()?.get("token")
+    UrlSearchParams::new_with_str(&search)
+        .ok()?
+        .get("token")
+        .map(|v| Token(v))
 }
 
 fn get_url_of(upload_id: &str) -> Option<String> {
@@ -32,7 +40,7 @@ fn get_url_of(upload_id: &str) -> Option<String> {
     Some(format!("{protocol}//{host}/get/{upload_id}"))
 }
 
-async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<Msg, JsValue> {
+async fn upload_file(file: File, token: &Token, duration: Option<i64>) -> Result<Msg, JsValue> {
     let name = file.name();
 
     let form = web_sys::FormData::new()?;
@@ -42,7 +50,7 @@ async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<M
         form.append_with_str("duration", &duration.to_string())?;
     }
 
-    let res = Request::post(&format!("/post/{}", &token))
+    let res = Request::post(&format!("/post/{}", token.0))
         .body(form)
         .send()
         .await
@@ -76,24 +84,17 @@ impl Component for Model {
                 self.files.extend(files);
                 true
             }
-            Msg::Upload => {
-                if let Some(token) = get_location_token() {
-                    let duration = self.duration;
-                    self.files.drain(..).for_each(|file| {
-                        let token = token.to_owned();
-                        ctx.link().send_future(async move {
-                            match upload_file(file, &token, duration).await {
-                                Ok(msg) => msg,
-                                Err(_) => todo!(),
-                            }
-                        });
+            Msg::Upload(token) => {
+                let duration = self.duration;
+                self.files.drain(..).for_each(|file| {
+                    let token = token.to_owned();
+                    ctx.link().send_future(async move {
+                        match upload_file(file, &token, duration).await {
+                            Ok(msg) => msg,
+                            Err(_) => todo!(),
+                        }
                     });
-                } else {
-                    let window = web_sys::window().unwrap();
-                    window
-                        .alert_with_message("Token not found. Use ?token=<your token> in the url.")
-                        .unwrap();
-                }
+                });
                 true
             }
             Msg::Uploaded(res) => {
@@ -119,23 +120,30 @@ impl Component for Model {
             Msg::Files(result)
         };
 
-        html! {
-            <div>
+        if let Some(token) = get_location_token() {
+            let token = Rc::new(token);
+            html! {
                 <div>
-                    <p>{ "Choose files to upload" }</p>
-                    <input type="file" multiple=true onchange={ ctx.link().callback(on_click) }
-                    />
+                    <div>
+                        <p>{ "Choose files to upload" }</p>
+                        <input type="file" multiple=true onchange={ ctx.link().callback(on_click) }
+                        />
+                    </div>
+                    <ul>
+                        { for self.files.iter().map(Self::view_file) }
+                    </ul>
+                    <div>
+                        <input value="Upload" type="button" onclick={ctx.link().callback(move |_| Msg::Upload(Token::clone(&token)))} />
+                    </div>
+                    <div>
+                        { for self.results.iter().map(|url| Self::view_url(url.to_string())) }
+                    </div>
                 </div>
-                <ul>
-                    { for self.files.iter().map(Self::view_file) }
-                </ul>
-                <div>
-                    <input value="Upload" type="button" onclick={ctx.link().callback(|_| Msg::Upload)} />
-                </div>
-                <div>
-                    { for self.results.iter().map(|url| Self::view_url(url.to_string())) }
-                </div>
-            </div>
+            }
+        } else {
+            html! {
+                <p> {"Token not found. Use ?token=<your token> in the url."} </p>
+            }
         }
     }
 }
