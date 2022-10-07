@@ -11,6 +11,7 @@ pub enum Msg {
     Uploaded(String),
 }
 
+#[derive(Debug, Default)]
 pub struct Model {
     files: Vec<File>,
     results: Vec<String>,
@@ -41,22 +42,24 @@ async fn upload_file(file: File, token: &str, duration: Option<i64>) -> Result<M
         form.append_with_str("duration", &duration.to_string())?;
     }
 
-    let token = token.to_owned();
-    let res = Request::post(&format!("/post/{}", token))
+    let res = Request::post(&format!("/post/{}", &token))
         .body(form)
         .send()
-        .await;
-    if let Err(err) = res {
-        return Err(JsValue::from_str(&err.to_string()));
-    }
+        .await
+        .map_err(|err| JsValue::from_str(&err.to_string()))?;
 
-    let res = res.unwrap().text().await;
-    if let Err(err) = res {
-        return Err(JsValue::from_str(&err.to_string()));
+    if res.status() == 200 {
+        let text = res
+            .text()
+            .await
+            .map_err(|err| JsValue::from_str(&err.to_string()))?;
+        Ok(Msg::Uploaded(text))
+    } else {
+        Err(JsValue::from_str(&format!(
+            "http error: {}",
+            res.status_text()
+        )))
     }
-
-    let res = res.unwrap();
-    Ok(Msg::Uploaded(res))
 }
 
 impl Component for Model {
@@ -64,19 +67,13 @@ impl Component for Model {
     type Properties = ();
 
     fn create(_ctx: &Context<Self>) -> Self {
-        Self {
-            files: vec![],
-            results: vec![],
-            duration: None,
-        }
+        Self::default()
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             Msg::Files(files) => {
-                for file in files.into_iter() {
-                    self.files.push(file);
-                }
+                self.files.extend(files);
                 true
             }
             Msg::Upload => {
@@ -100,9 +97,7 @@ impl Component for Model {
                 true
             }
             Msg::Uploaded(res) => {
-                if let Some(url) = get_url_of(&res) {
-                    self.results.push(url);
-                }
+                self.results.extend(get_url_of(&res));
                 true
             }
         }
