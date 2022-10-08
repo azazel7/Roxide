@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use wasm_bindgen::JsValue;
 use web_sys::{Event, HtmlInputElement, UrlSearchParams};
 use yew::{html, html::TargetCast, Component, Context, Html};
@@ -29,7 +27,7 @@ fn get_location_token() -> Option<Token> {
     UrlSearchParams::new_with_str(&search)
         .ok()?
         .get("token")
-        .map(|v| Token(v))
+        .map(Token)
 }
 
 fn get_url_of(upload_id: &str) -> Option<String> {
@@ -87,7 +85,7 @@ impl Component for Model {
             Msg::Upload(token) => {
                 let duration = self.duration;
                 self.files.drain(..).for_each(|file| {
-                    let token = token.to_owned();
+                    let token = token.clone();
                     ctx.link().send_future(async move {
                         match upload_file(file, &token, duration).await {
                             Ok(msg) => msg,
@@ -111,9 +109,11 @@ impl Component for Model {
 
             if let Some(files) = input.files() {
                 let files = js_sys::try_iter(&files)
-                    .unwrap()
-                    .unwrap()
-                    .map(|v| web_sys::File::from(v.unwrap()))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .flatten()
+                    .map(web_sys::File::from)
                     .map(File::from);
                 result.extend(files);
             }
@@ -121,7 +121,7 @@ impl Component for Model {
         };
 
         if let Some(token) = get_location_token() {
-            let token = Rc::new(token);
+            let upload_callback = move |_| Msg::Upload(token.clone());
             html! {
                 <div>
                     <div>
@@ -133,10 +133,10 @@ impl Component for Model {
                         { for self.files.iter().map(Self::view_file) }
                     </ul>
                     <div>
-                        <input value="Upload" type="button" onclick={ctx.link().callback(move |_| Msg::Upload(Token::clone(&token)))} />
+                        <input value="Upload" type="button" onclick={ctx.link().callback(upload_callback)} />
                     </div>
                     <div>
-                        { for self.results.iter().map(|url| Self::view_url(url.to_string())) }
+                        { for self.results.iter().map(|url| Self::view_url(url.clone())) }
                     </div>
                 </div>
             }
