@@ -13,6 +13,9 @@ use rocket::config::Config;
 use rocket::fairing::AdHoc;
 use rocket::response::Responder;
 use rocket::serde::Deserialize;
+use rocket::fairing::{Fairing, Info, Kind};
+use rocket::http::Header;
+use rocket::{Request, Response};
 
 use rocket_db_pools::sqlx;
 use rocket_db_pools::Database;
@@ -23,6 +26,25 @@ use sqlx::SqlitePool;
 use redis::Commands;
 
 use crate::file_id::FileId;
+
+pub struct CORS;
+
+#[rocket::async_trait]
+impl Fairing for CORS {
+    fn info(&self) -> Info {
+        Info {
+            name: "Add CORS headers to responses",
+            kind: Kind::Response
+        }
+    }
+
+    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
+        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS"));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+    }
+}
 
 /// Error for roxide, returned as much as possible
 #[derive(Debug, thiserror::Error)]
@@ -150,7 +172,9 @@ async fn main() -> Result<(), RoxideError> {
                 }
             })
         }))
+		.attach(CORS)
         .attach(user::stage());
+
 
     let r = r.ignite().await?;
 
