@@ -1,13 +1,33 @@
-[workspace]
+[package]
+name = "roxide"
+version = "0.1.0"
+edition = "2021"
 
-members = [
-    "server",
-    "yew-ui",
-	]
-
-# Optimize our dependencies even on debug builds
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 3
+[profile.dev]
+opt-level = 1 
+debug = false
 
-[profile.release]
-lto = true
+[dependencies]
+rand = "0.8.4"
+chrono = "0.4"
+image = "0.24.3"
+thiserror = "1.0.32"
+infer = { version = "0.9.0"}
+redis = "0.21"
+
+[dependencies.rocket]
+version = "0.5.0-rc.2"
+features = ["json"]
+
+[dependencies.sqlx]
+version = "0.5"
+default-features = false
+features = ["macros", "offline", "migrate"]
+
+[dependencies.rocket_db_pools]
+version = "0.1.0-rc.2"
+features = ["sqlx_sqlite", "sqlx_postgres"]
+
