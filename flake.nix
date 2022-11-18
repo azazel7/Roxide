@@ -2,9 +2,18 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    naersk.url = "github:nix-community/naersk";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    import-cargo.url = "github:edolstra/import-cargo";
+    naersk = {
+      url = "github:nix-community/naersk";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
+    import-cargo = {
+      url = "github:edolstra/import-cargo";
+    };
   };
 
   outputs = { self, nixpkgs, flake-utils, naersk, rust-overlay, import-cargo }:
@@ -12,19 +21,20 @@
       let
         pkgs = (import nixpkgs) {
           inherit system;
-        };
-
-        naersk' = pkgs.callPackage naersk { };
-
-        rustPkgs = import nixpkgs {
-          inherit system;
           overlays = [ (import rust-overlay) ];
         };
+
+        naersk' = pkgs.callPackage naersk {};
+
         wasmTarget = "wasm32-unknown-unknown";
-        rustWithWasmTarget = rustPkgs.rust-bin.stable.latest.default.override {
+        rustWithWasmTarget = pkgs.rust-bin.stable.latest.default.override {
           targets = [ wasmTarget ];
         };
 
+        cargoHome = (import-cargo.builders.importCargo {
+          lockFile = ./Cargo.lock;
+          inherit pkgs;
+        }).cargoHome;
       in
       rec {
         # For `nix build` & `nix run`
@@ -54,10 +64,7 @@
               cargo
               wasm-bindgen-cli
               sass
-              (import-cargo.builders.importCargo {
-                lockFile = ./Cargo.lock;
-                inherit pkgs;
-              }).cargoHome
+              cargoHome
             ];
 
             buildPhase = ''
